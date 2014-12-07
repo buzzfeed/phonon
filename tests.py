@@ -1,5 +1,9 @@
 import unittest
+import json
 import redis
+from dateutil import parser
+import datetime
+import pytz
 
 from disref import Reference
 
@@ -34,40 +38,123 @@ class DisRefTest(unittest.TestCase):
         a.release() 
         assert a.lock() == True
 
-    def test_locked_context(self):
-        pass
-
     def test_refresh_session_sets_time_initially(self):
         a = Reference(1, 'foo')
-        reflist = self.client.get(a.reflist_key)
+        a.refresh_session()
+        reflist = json.loads(a.client.get(a.reflist_key) or "{}")
+        assert len(reflist) == 1, "{0}: {1}".format(reflist, len(reflist))
+        assert isinstance(parser.parse(reflist[u'1']), datetime.datetime)
 
     def test_refresh_session_resets_time(self):
-        pass
+        a = Reference(1, 'foo')
+        reflist = json.loads(a.client.get(a.reflist_key) or "{}")
+        start = parser.parse(reflist[u'1'])
+        a.refresh_session()
+        reflist = json.loads(a.client.get(a.reflist_key) or "{}")
+        end = parser.parse(reflist[u'1'])
+        assert end > start
+        assert isinstance(end, datetime.datetime)
+        assert isinstance(start, datetime.datetime)
 
     def test_get_and_increment_times_modified(self):
-        pass
+        a = Reference(1, 'foo')
+        assert a.get_times_modified() == 0
+        a.increment_times_modified()
+        assert a.get_times_modified() == 1, a.get_times_modified()
+        a.increment_times_modified()
+        a.increment_times_modified()
+        assert a.get_times_modified() == 3
+        b = Reference(2, 'foo')
+        b.increment_times_modified() 
+        assert b.get_times_modified() == 4
 
     def test_count_for_one_reference(self):
-        pass
+        a = Reference(1, 'foo')
+        assert a.count() == 1
 
     def test_count_for_multiple_references(self):
-        pass
+        a = Reference(1, 'foo')
+        b = Reference(2, 'foo')
+        c = Reference(3, 'foo')
+        assert a.count() == b.count()
+        assert b.count() == c.count()
+        assert c.count() == 3
 
     def test_count_decrements_when_dereferenced(self):
-        pass
+        a = Reference(1, 'foo')
+        b = Reference(2, 'foo')
+        c = Reference(3, 'foo')
+        assert a.count() == b.count()
+        assert b.count() == c.count()
+        assert c.count() == 3
+        a.dereference()
+        assert a.count() == 2
+        b.dereference()
+        assert a.count() == 1
+        c.dereference() 
+        assert a.count() == 0, a.client.get(a.reflist_key)
 
     def test_remove_failed_processes(self):
-        pass
+        now = datetime.datetime.now(pytz.utc)
+        expired = now - datetime.timedelta(seconds=2 * Reference.TTL + 1)
+        pids = {u'1': now.isoformat(),
+                u'2': expired.isoformat()}
+        a = Reference(5, 'biz')
+        target = a.remove_failed_processes(pids)
+        assert u'2' not in target, target
+        assert u'1' in target, target
+        assert target[u'1'] == now.isoformat(), target
 
     def test_dereference_removes_pid_from_pids(self):
-        pass
+        a = Reference(1, 'foo')
+        b = Reference(2, 'foo')
+        pids = json.loads(a.client.get(a.reflist_key) or "{}")
+        assert u'1' in pids
+        assert u'2' in pids
+        a.dereference()
+        pids = json.loads(a.client.get(a.reflist_key) or "{}")
+        assert u'1' not in pids
+        b.dereference()
+        pids = json.loads(a.client.get(b.reflist_key) or "{}")
+        assert u'2' not in pids
+        assert len(pids) == 0
 
     def test_dereference_cleans_up(self):
-        pass
+        a = Reference(1, 'foo')
+        b = Reference(2, 'foo')
+        pids = json.loads(a.client.get(a.reflist_key) or "{}")
+        assert u'1' in pids
+        assert u'2' in pids
+        a.dereference()
+        pids = json.loads(a.client.get(a.reflist_key) or "{}")
+        assert u'1' not in pids
+        b.dereference()
+        pids = json.loads(a.client.get(b.reflist_key) or "{}")
+        assert u'2' not in pids
+        assert len(pids) == 0
+        assert a.client.get(a.reflist_key) == None, a.client.get(a.reflist_key) 
+        assert a.client.get(a.resource_key) == None, a.client.get(a.resource_key)
+        assert a.client.get(a.times_modified_key) == None, a.client.get(a.times_modified_key)
 
     def test_dereference_handles_when_never_modified(self):
-        pass
+        a = Reference(1, 'foo')
+        pids = json.loads(a.client.get(a.reflist_key) or "{}")
+        assert len(pids) == 1, pids
+
+        a.dereference()
+        pids = json.loads(a.client.get(a.reflist_key) or "{}")
+        assert len(pids) == 0, pids
 
     def test_dereference_calls_callback(self):
-        pass
+        a = Reference(1, 'foo')
+        b = Reference(2, 'foo')
+        foo = [1]
+        
+        def callback(*args, **kwargs):
+            print "Callback called", args
+            foo.pop()
 
+        b.dereference(callback, args=('first',))
+        assert len(foo) == 1
+        a.dereference(callback, args=('second',))
+        assert len(foo) == 0

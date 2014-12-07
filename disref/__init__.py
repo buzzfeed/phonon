@@ -5,6 +5,7 @@ import json
 import pytz
 import sherlock
 import redis 
+from dateutil import parser
 
 
 LOCAL_TZ = pytz.utc 
@@ -46,9 +47,10 @@ class Reference(object):
     class AlreadyLocked(DisRefError):
         pass
 
-    def __init__(self, pid, resource, block=True, host='localhost', port=6379, db=1):
-        self.pid = pid
+    def __init__(self, pid, resource, block=True, session_length=int(0.5*TTL), host='localhost', port=6379, db=1):
+        self.pid = unicode(pid)
         self.block = block
+        self.session_length = session_length
         self.reflist_key = "{0}.reflist".format(resource)
         self.resource_key = "{0}.key".format(resource)
         self.times_modified_key = "{0}.times_modified".format(resource)
@@ -93,18 +95,20 @@ class Reference(object):
         This method should only be called while the reference is locked.  
         """
         client = Reference.client
-        s_reflist = client.get(self.reflist_key)  # Memcache errors handled internally
         reflist = {}
+        s_reflist = client.get(self.reflist_key)  
+
         if s_reflist is not None:
             try:
-                reflist = Reference.remove_failed_processes(json.loads(s_reflist))
+                reflist = self.remove_failed_processes(json.loads(s_reflist))
             except ValueError:
                 logger.error("Expected some json but got {0} when parsing reflist".format(s_reflist))
                 pass
 
         reflist[self.pid] = datetime.datetime.now(LOCAL_TZ).isoformat()
 
-        client.set(self.reflist_key, json.dumps(reflist) ) 
+        client.set(self.reflist_key, json.dumps(reflist)) 
+
 
     def increment_times_modified(self):
         """
@@ -116,11 +120,11 @@ class Reference(object):
         key = self.times_modified_key 
         rc = client.setnx(key, 1)
         if not rc:
-            client.incr(key)
+            client.incr(key, 1)
         else:
             client.pexpire(key, Reference.TTL * 1000) # ttl is in ms
 
-        self.update_process_session()
+        self.refresh_session()
 
     def get_times_modified(self):
         """
@@ -134,7 +138,7 @@ class Reference(object):
         times_modified = client.get(key)
         if times_modified is None:
             return 0
-        return times_modified
+        return int(times_modified)
 
     def count(self):
         """
@@ -149,8 +153,7 @@ class Reference(object):
             return 0
         return len(json.loads(reflist))
 
-    @classmethod
-    def remove_failed_processes(cls, pids):
+    def remove_failed_processes(self, pids):
         """
         When a process has held a reference for longer than Reference.TTL without refreshing it's session; this method will detect, log, and prune that reference. This is a low-level method that doesn't do any querying. 
 
@@ -162,12 +165,11 @@ class Reference(object):
         """
         for pid, iso_date in pids.items():
             last_updated = parser.parse(iso_date)
-            if (datetime.datetime.now(LOCAL_TZ) - last_updated) > datetime.timedelta(seconds=2 * Reference.TTL):
-                logger.error("NODE FAILURE: recovering an update. Node was {0}, failed at {1}".format(pid, last_updated))
+            if (datetime.datetime.now(LOCAL_TZ) - last_updated) > datetime.timedelta(seconds=self.session_length):
                 del pids[pid]
         return pids
 
-    def dereference(self, callback, args=None, kwargs=None):
+    def dereference(self, callback=None, args=None, kwargs=None):
         """
         This method should only be called while the reference is locked.
 
@@ -184,25 +186,33 @@ class Reference(object):
         :rtype: bool
         """
         pids = {}
+        if args is None:
+            args = tuple()
+        if kwargs is None:
+            kwargs = {}
+        
         client = Reference.client
         reflist = client.get(self.reflist_key)
 
         if reflist is not None:
             pids = json.loads(reflist)
-            if str(self.pid) in pids:  # It won't be here if a dereference previously failed at the delete step.
-                del pids[str(self.pid)]
+            if self.pid in pids:  # It won't be here if a dereference previously failed at the delete step.
+                del pids[self.pid]
 
         # Check for failed processes
         pids = self.remove_failed_processes(pids)
+        rc = True
         if pids:
-            val = json.dumps(pids)
-            client.set(self.reflist_key, val)
-            return False
+            rc = False 
 
         try:
-            callback(*args, **kwargs)
+            val = json.dumps(pids)
+            client.set(self.reflist_key, val)
+            if callback is not None and rc:
+                callback(*args, **kwargs)
         finally:
-            client.delete([self.resource_key, self.reflist_key, self.times_modified_key])
+            if rc:
+                client.delete(self.resource_key, self.reflist_key, self.times_modified_key)
 
-        return True
+        return rc 
 
