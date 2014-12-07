@@ -48,6 +48,15 @@ class Reference(object):
         pass
 
     def __init__(self, pid, resource, block=True, session_length=int(0.5*TTL), host='localhost', port=6379, db=1):
+        """
+        :param int pid: The id to represent the process owning this Reference (must be globally unique)
+        :param str resource: An identifier for the resource. For example: Buzz.12345
+        :param bool block: Optional. Whether or not to block when establishing locks. 
+        :param session_length int: The session length for the resource. e.g. If this represents an update for a User, the session_length would be the session length for that user. This should be at most 1/2 the length of the TTL for the Reference.
+        :param str host: The host to connect to redis over.
+        :param int port: The port to connect to redis on. 
+
+        """
         self.pid = unicode(pid)
         self.block = block
         self.session_length = session_length
@@ -64,7 +73,13 @@ class Reference(object):
                     timeout=self.TIMEOUT,
                     client=Reference.client)
 
-        self.refresh_session()
+        if self.lock(block=block):
+            self.refresh_session()
+            self.release()
+        else:
+            raise Reference.AlreadyLocked(
+                    "Could not acquire a reference. Possible deadlock for pid: {0}, rid: {1}".format(self.pid, self.resource_key))
+
 
 
     def lock(self, block=None):
