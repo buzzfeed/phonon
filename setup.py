@@ -14,7 +14,7 @@ setup(
     author='Andrew Kelleher, Will McCutchen',
     author_email='andrew.kelleher@buzzfeed.com, will.mccutchen@buzzfeed.com',
     description='Provides easy, fault tolerant, distributed references with redis as a backend.',
-    test_suite='tests',
+    test_suite='test',
     install_requires=[
         'sherlock==0.3.0',
         'pytz==2014.10',

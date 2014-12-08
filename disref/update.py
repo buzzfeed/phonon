@@ -1,9 +1,9 @@
-import random
+import json
 
 from disref import Reference
 from disref import DisRefError 
 
-class Update(Reference):
+class Update(object):
     """
     It's common for a database backend to be a bottleneck when data is aggregated for access through an API. This method is intended to be used in the implementation of an efficient, distributed write-through cache. 
     
@@ -14,7 +14,7 @@ class Update(Reference):
     When another 8 minutes pass; process A dereferences. Since the reference count is > 1 and times_modified is 0; the `cache` method of this class is called, and the times_modified for the update is incremented. When process B dereferences; it notices the times_modified is > 0 and the reference count is 1. This class will pull what is cached in redis and use the `merge` method you define to combine that cached record with this instance. After that; instead of caching it will run the `execute` method of this class. After the `execute` method finishes; the resource will be removed from redis. 
     """
 
-    def __init__(self, pid, _id, database, collection, spec, doc, ):
+    def __init__(self, pid, _id, database, collection, spec, doc):
         """
         :param int pid: The process id, unique to all nodes, for this process.
         :param str _id: The primary key for the record in the database.
@@ -28,37 +28,40 @@ class Update(Reference):
         self.doc = doc 
         self.collection = collection
         self.database = database
-
-        super(Update, self).__init__(pid=pid, resource=self.resource_id)
+        self.ref = Reference(pid=pid, resource=self.resource_id)
 
     def end_session(self, block=True):
         """
         Indicate to this update it's session has ended on the local machine. The implementation of your cache, merge, and execute methods will be used to write to redis or your database backend as efficiently as possible.
         """
         try:
-            if not self.lock(block=block):
+            locked = False
+            if self.ref.lock(block=block):
+                locked = True
+                if not self.ref.dereference(self.__execute):
+                    self.__cache()
+            else: 
                 raise Reference.AlreadyLocked("Failed to lock on {0}.") 
-            if not self.dereference(self.__execute):
-                self.__cache()
         finally:
-            self.release()
+            if locked:
+                self.ref.release()
 
     def __cache(self):
         """
         Handles deciding whether or not to get the resource from redis. Also implements merging cached records with this one (by implementing your `merge` method). Increments the number of times this record was modified if the cache method executes successfully (does not raise).
         """
-        if self.get_times_modified() > 0:
-            cached = json.loads(self.client.get(self.resource_id) or "{}")
+        if self.ref.get_times_modified() > 0:
+            cached = json.loads(self.ref.client.get(self.resource_id) or "{}")
             self.merge(cached)
         self.cache() 
-        self.increment_times_modified()
+        self.ref.increment_times_modified()
 
     def __execute(self):
         """
         Handles deciding whether or not to get the resource from redis. Also implements merging cached records with this one (by implementing your `merge` method). Calls your `execute` method to write the record to the database. Recovering from a failed `execute` is up to you.
         """
-        if self.get_times_modified() > 0:
-            cached = json.loads(self.client.get(self.resource_id) or "{}")
+        if self.ref.get_times_modified() > 0:
+            cached = json.loads(self.ref.client.get(self.resource_id) or "{}")
             self.merge(cached)
         self.execute() 
 

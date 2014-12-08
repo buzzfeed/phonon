@@ -61,12 +61,12 @@ class Reference(object):
         self.block = block
         self.session_length = session_length
         self.reflist_key = "{0}.reflist".format(resource)
-        self.resource_key = "{0}.key".format(resource)
+        self.resource_key = resource 
         self.times_modified_key = "{0}.times_modified".format(resource)
         self.__lock = None
 
         if not hasattr(Reference, 'client'):
-            Reference.client = redis.Redis(host=host, port=port, db=db)
+            Reference.client = redis.StrictRedis(host=host, port=port, db=db)
             sherlock.configure(backend=sherlock.backends.REDIS,
                     expire=self.TTL,
                     retry_interval=self.RETRY_SLEEP,
@@ -81,7 +81,6 @@ class Reference(object):
                     "Could not acquire a reference. Possible deadlock for pid: {0}, rid: {1}".format(self.pid, self.resource_key))
 
 
-
     def lock(self, block=None):
         """
         Locks the resource represented by this reference. 
@@ -94,7 +93,7 @@ class Reference(object):
         if block is None:
             block = self.block
         if self.__lock is None:
-            self.__lock = sherlock.Lock(self.resource_key)
+            self.__lock = sherlock.RedisLock(self.resource_key)
 
         return self.__lock.acquire(blocking=block)
 
@@ -138,8 +137,6 @@ class Reference(object):
             client.incr(key, 1)
         else:
             client.pexpire(key, Reference.TTL * 1000) # ttl is in ms
-
-        self.refresh_session()
 
     def get_times_modified(self):
         """
@@ -218,7 +215,7 @@ class Reference(object):
         pids = self.remove_failed_processes(pids)
         rc = True
         if pids:
-            rc = False 
+            rc = False # This is not the last process  
 
         try:
             val = json.dumps(pids)
