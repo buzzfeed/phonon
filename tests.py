@@ -6,6 +6,7 @@ import datetime
 import pytz
 
 from disref import Reference
+from disref.update import Update
 
 class DisRefTest(unittest.TestCase):
 
@@ -158,3 +159,52 @@ class DisRefTest(unittest.TestCase):
         assert len(foo) == 1
         a.dereference(callback, args=('second',))
         assert len(foo) == 0
+
+class UpdateTest(unittest.TestCase):
+
+    class UserUpdate(Update):
+
+        def merge(self, user_update):
+            pass
+
+        def cache(self):
+            obj = {
+                    'doc': self.doc,
+                    'spec': self.spec,
+                    'collection': self.collection,
+                    'database': self.database
+            }
+            self.client.set(self.resource_id, json.loads(obj))
+
+        def execute(self):
+            obj = {
+                    'doc': self.doc,
+                    'spec': self.spec,
+                    'collection': self.collection,
+                    'database': self.database
+            }
+            self.client.set("{0}.write".format(self.resource_id), json.loads(obj)) 
+
+    def test_initializer_updates_ref_count(self):
+        pass
+
+    def test_cache_caches(self):
+        pass
+
+    def test_execute_executes(self):
+        pass
+
+    def test_merge_merges(self):
+        pass
+
+    def test_end_session_raises_when_deadlocked(self):
+        pass
+
+    def test_end_session_executes_for_unique_references(self):
+        pass
+
+    def test_end_session_caches_for_non_unique_refrences(self):
+        pass
+
+    def test_end_session_executes_pulling_from_cache(self):
+        pass
