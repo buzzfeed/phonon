@@ -1,0 +1,17 @@
+[run]
+branch = True
+source = disref/
+include =
+    disref/update.py
+    disref/__init__.py 
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    def __str__
+    def __unicode__
+    while True
+    time.sleep
+precision = 2
+show_missing = True
+title = DisRef Coverage Report

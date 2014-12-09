@@ -1,2 +1,3 @@
 *.pyc
 disref.egg-info/
+.coverage
