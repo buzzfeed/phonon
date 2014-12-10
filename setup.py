@@ -1,4 +1,4 @@
-__author__ = "andrew.kelleher@buzzfeed.com (Andrew Kelleher),Will McCutchen <will.mccutchen@buzzfeed.com>"
+__author__ = "andrew.kelleher@buzzfeed.com (Andrew Kelleher)"
 
 try:
   from setuptools import setup, find_packages
@@ -11,8 +11,8 @@ setup(
     name='disref',
     version='0.1',
     packages=find_packages(),
-    author='Andrew Kelleher, Will McCutchen',
-    author_email='andrew.kelleher@buzzfeed.com, will.mccutchen@buzzfeed.com',
+    author='Andrew Kelleher', 
+    author_email='andrew.kelleher@buzzfeed.com', 
     description='Provides easy, fault tolerant, distributed references with redis as a backend.',
     test_suite='test',
     install_requires=[

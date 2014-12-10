@@ -5,6 +5,9 @@ from dateutil import parser
 import datetime
 import pytz
 
+from mock import patch
+from fakeredis import FakeStrictRedis
+
 from disref import Reference
 from disref.update import Update
 

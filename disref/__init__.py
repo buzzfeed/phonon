@@ -70,8 +70,7 @@ class Reference(object):
             sherlock.configure(backend=sherlock.backends.REDIS,
                     expire=self.TTL,
                     retry_interval=self.RETRY_SLEEP,
-                    timeout=self.TIMEOUT,
-                    client=Reference.client)
+                    timeout=self.TIMEOUT)
 
         if self.lock(block=block):
             self.refresh_session()
