@@ -87,6 +87,14 @@ You can see the above example is pretty redundant in this case. It's much more u
 from disref.update import Update
 from disref.cache import LruCache
 
+class UserUpdate(Update):
+    def cache(self):
+        # Cache this object to redis. Don't worry about locking, etc, it's handled.
+    def merge(self, other):
+        # Merge an instance of this class with another, combining state.
+    def execute(self):
+        # Write this object to the database. don't worry about when to cache vs. execute, it's handled.
+
 # Calls end_session upon removing from cache.
 # Also finds collisions and calls merge instead of overwriting on set
 lru_cache = LruCache(max_entries=10000) 
