@@ -6,10 +6,10 @@ import datetime
 import pytz
 
 from mock import patch
-from fakeredis import FakeStrictRedis
 
 from disref import Reference
 from disref.update import Update
+from disref.cache import LruCache, CacheError
 
 class DisRefTest(unittest.TestCase):
 
@@ -267,3 +267,114 @@ class UpdateTest(unittest.TestCase):
 
     def test_end_session_executes_for_unique_references(self):
         pass
+
+class LruCacheTest(unittest.TestCase):
+
+    def setUp(self):
+        self.cache = LruCache(max_entries=5)
+
+    def get_update(self, key):
+        class Update(object):
+            def __init__(self, key):
+                self.key = key
+                self.__called = False
+            def merge(self, other):
+                self.__other = other
+            def end_session(self):
+                self.__called = True 
+            def assert_end_session_called(self):
+                assert self.__called
+            def assert_merged(self, other):
+                assert other is self.__other
+        return Update(key) 
+
+    def test_set_reorders_repeated_elements(self):
+        a = self.get_update('a')
+        b = self.get_update('b')
+        c = self.get_update('c')
+        self.cache.set(1, a) 
+        assert self.cache.size() == 1
+        self.cache.set(2, b) 
+        assert self.cache.size() == 2
+        self.cache.set(1, a) 
+        assert self.cache.size() == 2
+        a.assert_merged(a)
+        self.cache.expire_oldest()
+        b.assert_end_session_called()
+        assert self.cache.size() == 1
+
+    def test_set_expires_oldest_to_add_new(self):
+        a = self.get_update('a')
+        b = self.get_update('b')
+        c = self.get_update('c')
+        d = self.get_update('d')
+        e = self.get_update('e')
+        f = self.get_update('f')
+
+        assert self.cache.size() == 0 
+        self.cache.set('a', a)
+        assert self.cache.size() == 1
+        self.cache.set('b', b)
+        assert self.cache.size() == 2 
+        self.cache.set('c', c)
+        assert self.cache.size() == 3
+        self.cache.set('d', d)
+        assert self.cache.size() == 4
+        self.cache.set('e', e)
+        assert self.cache.size() == 5
+        self.cache.set('f', f)
+        assert self.cache.size() == 5
+
+        a.assert_end_session_called()
+
+    def test_get_returns_elements(self):
+        a = self.get_update('a')
+        self.cache.set('a', a) 
+        assert self.cache.get('a') is a
+        assert self.cache.size() == 1
+        assert self.cache.get('a') is a
+
+    def test_expire_expires_at_key(self):
+        a = self.get_update('a')
+        b = self.get_update('b')
+
+        self.cache.set('a', a)
+        self.cache.set('b', b)
+        assert self.cache.size() == 2
+
+        assert self.cache.get('a') is a
+        self.cache.expire('a')
+        assert self.cache.size() == 1
+        a.assert_end_session_called()
+
+
+    def test_expire_all_expires_all(self):
+        updates = [self.get_update('a'),
+            self.get_update('b'),
+            self.get_update('c'),
+            self.get_update('d'),
+            self.get_update('e')]
+        
+        for size, update in enumerate(updates):
+            self.cache.set(update.key, update)
+            assert self.cache.size() == size + 1
+
+        self.cache.expire_all()
+        assert self.cache.size() == 0
+        for update in updates:
+            update.assert_end_session_called()
+
+    def test_failres_are_kept(self):
+        class FailingUpdate(object):
+            def end_session(self):
+                raise Exception("Failed.")
+
+        failing = FailingUpdate()
+        self.cache.set('a', failing) 
+        try:
+            self.cache.expire('a')
+        except Exception, e:
+            pass
+
+        assert self.cache.get_last_failed() is failing
+
