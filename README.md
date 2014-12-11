@@ -83,8 +83,7 @@ Whoever is last to update the record in the cache will know since `count()` will
 
 You can see the above example is pretty redundant in this case. It's much more useful to make use of a passive design, subscribing to incoming messages, and using sessions to decide when to write. That is what the `Update` class is intended to do. I'll just write a for loop to simulate incoming messages.
 
-```
-from django.core.cache.backends.locmem import LocMemCache
+```python
 from disref.update import Update
 from disref.cache import LruCache
 
