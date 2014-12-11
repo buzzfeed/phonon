@@ -14,7 +14,7 @@ class Update(object):
     When another 8 minutes pass; process A dereferences. Since the reference count is > 1 and times_modified is 0; the `cache` method of this class is called, and the times_modified for the update is incremented. When process B dereferences; it notices the times_modified is > 0 and the reference count is 1. This class will pull what is cached in redis and use the `merge` method you define to combine that cached record with this instance. After that; instead of caching it will run the `execute` method of this class. After the `execute` method finishes; the resource will be removed from redis. 
     """
 
-    def __init__(self, pid, _id, database, collection, spec, doc):
+    def __init__(self, pid, _id, database='test', collection='test', spec=None, doc=None):
         """
         :param int pid: The process id, unique to all nodes, for this process.
         :param str _id: The primary key for the record in the database.
@@ -84,4 +84,5 @@ class Update(object):
         :param dict update: Exactly what you wrote in your `cache` method, but already parsed from JSON into a python `dict`.
         """
         raise NotImplemented("You must define a merge method that merges it's argument with this object.")
+
 
