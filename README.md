@@ -95,5 +95,5 @@ lru_cache = LruCache(max_entries=10000)
 for user_update in user_updates:
     lru_cache.set(user_update.user_id, Update(pid=1, doc=**user_update))
 
-```
 lru_cache.expire_all()
+```
