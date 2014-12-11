@@ -4,6 +4,7 @@ source = disref/
 include =
     disref/update.py
     disref/__init__.py 
+    disref/cache.py
 [report]
 exclude_lines =
     pragma: no cover

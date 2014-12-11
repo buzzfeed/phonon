@@ -78,3 +78,22 @@ t2.join()
 ```
 
 Whoever is last to update the record in the cache will know since `count()` will return `1`. At that point we'll know the record is finished being updated, and is ready to be written to the database. 
+
+## Updates
+
+You can see the above example is pretty redundant in this case. It's much more useful to make use of a passive design, subscribing to incoming messages, and using sessions to decide when to write. That is what the `Update` class is intended to do. I'll just write a for loop to simulate incoming messages.
+
+```
+from django.core.cache.backends.locmem import LocMemCache
+from disref.update import Update
+from disref.cache import LruCache
+
+# Calls end_session upon removing from cache.
+# Also finds collisions and calls merge instead of overwriting on set
+lru_cache = LruCache(max_entries=10000) 
+
+for user_update in user_updates:
+    lru_cache.set(user_update.user_id, Update(pid=1, doc=**user_update))
+
+```
+lru_cache.expire_all()
