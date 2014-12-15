@@ -23,6 +23,7 @@ setup(
     classifiers=[
         'Intended Audience :: Developers',
         'Intended Audience :: System Administrators',
+        'Development Status :: 2 - Pre-Alpha',
     ],
     keywords="distributed reference references aggregation pipeline big data online algorithm"
 )
