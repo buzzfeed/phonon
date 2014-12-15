@@ -9,7 +9,7 @@ except ImportError:
 
 setup(
     name='disref',
-    version='0.1',
+    version='0.2',
     packages=find_packages(),
     author='Andrew Kelleher', 
     author_email='andrew.kelleher@buzzfeed.com', 
