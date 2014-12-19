@@ -40,10 +40,13 @@ The building blocks for this approach to concurrency is the `Reference` object. 
 Here's an example:
 
 ```python
-from disref import Reference
+from disref.reference import Reference
+from disref.process import Process
 
-address_lookup_service = Reference(pid=1, resource='me')
-email_verification_service = Reference(pid=2, resource='me')
+p1 = Process()
+address_lookup_service = p1.create_reference(resource='me')
+p2 = Process()
+email_verification_service = p2.create_reference(resource='me')
 
 def lookup_email_and_apply_to_record(record, reference):
     email = get_email(record)
@@ -75,6 +78,9 @@ t1.start()
 t2.start()
 t1.join()
 t2.join()
+
+p1.stop()
+p2.stop()
 ```
 
 Whoever is last to update the record in the cache will know since `count()` will return `1`. At that point we'll know the record is finished being updated, and is ready to be written to the database. 
@@ -99,8 +105,10 @@ class UserUpdate(Update):
 # Also finds collisions and calls merge instead of overwriting on set
 lru_cache = LruCache(max_entries=10000) 
 
+p = Process()
 for user_update in user_updates:
-    lru_cache.set(user_update.user_id, Update(pid=1, doc=**user_update))
+    lru_cache.set(user_update.user_id, Update(process=p, doc=**user_update))
 
 lru_cache.expire_all()
+p.stop()
 ```

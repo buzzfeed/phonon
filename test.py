@@ -1,97 +1,221 @@
 import unittest
 import json
 import redis
+import datetime
 from dateutil import parser
 import datetime
 import pytz
+import time
 
-from mock import patch
-
-from disref import Reference
+from disref.reference import Reference
+from disref.process import Process
 from disref.update import Update
-from disref.cache import LruCache, CacheError
+from disref.cache import LruCache
 
-class DisRefTest(unittest.TestCase):
+class ProcessTest(unittest.TestCase):
 
     def setUp(self):
-        self.client = redis.StrictRedis(host='localhost') 
+        if hasattr(Process, "client"):
+            Process.client.flushdb()
+
+    def test_init_establishes_connection_once(self):
+        p1 = Process()
+        p2 = Process()
+
+        assert Process.client is p1.client
+        assert Process.client is p2.client
+        assert p1.client is p2.client
+
+        p1.stop()
+        p2.stop()
+
+    def test_init_ignores_differing_connection_setting(self):
+        p1 = Process()
+        p2 = Process(host="notlocalhost", port=123)
+
+        p2_connection = p2.client.connection_pool.connection_kwargs
+        assert p2_connection['host'] != "notlocalhost"
+        assert p2_connection['port'] != 123
+
+        p1.stop()
+        p2.stop()
+
+    def test_init_create_heartbeat_data(self):
+        p = Process()
+
+        assert p.heartbeat_interval == 10
+        assert p.heartbeat_hash_name == "disref_heartbeat"
+        assert isinstance(p._Process__heartbeat_ref, Reference)
+
+        p.stop()
+
+    def test_heartbeat_updates(self):
+        p = Process(heartbeat_interval=2)
+
+        current_time = p.client.hget(p.heartbeat_hash_name, p.id)
+
+        time.sleep(3)
+
+        new_time = p.client.hget(p.heartbeat_hash_name, p.id)
+
+        assert parser.parse(new_time) >= parser.parse(current_time) + datetime.timedelta(p.heartbeat_interval/(24*60*60))
+
+        p.stop()
+
+    def test_multiple_heartbeats_updates(self):
+        p1 = Process(heartbeat_interval=2)
+        p2 = Process(heartbeat_interval=2)
+        p3 = Process(heartbeat_interval=2)
+
+        current_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
+        current_time_2 = p2.client.hget(p2.heartbeat_hash_name, p2.id)
+        current_time_3 = p3.client.hget(p3.heartbeat_hash_name, p3.id)
+
+        time.sleep(3)
+
+        new_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
+        new_time_2 = p2.client.hget(p2.heartbeat_hash_name, p2.id)
+        new_time_3 = p3.client.hget(p3.heartbeat_hash_name, p3.id)
+
+        assert parser.parse(new_time_1) >= parser.parse(current_time_1) + datetime.timedelta(p1.heartbeat_interval/(24*60*60))
+        assert parser.parse(new_time_2) >= parser.parse(current_time_2) + datetime.timedelta(p2.heartbeat_interval/(24*60*60))
+        assert parser.parse(new_time_3) >= parser.parse(current_time_3) + datetime.timedelta(p3.heartbeat_interval/(24*60*60))
+        assert new_time_1 != new_time_2
+        assert new_time_2 != new_time_3
+
+        p1.stop()
+        p2.stop()
+        p3.stop()
+
+    def test_stop_cleansup(self):
+        p1 = Process(heartbeat_interval=2)
+        p2 = Process(heartbeat_interval=2)
+
+        current_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
+
+        assert p2._Process__heartbeat_ref.count() is 2
+        p1.stop()
+
+        time.sleep(3)
+
+        new_time_2 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
+
+        assert isinstance(parser.parse(current_time_1), datetime.datetime)
+        assert new_time_2 == current_time_1
+        assert p2._Process__heartbeat_ref.count() is 1
+
+        p2.stop()
+
+        assert p2._Process__heartbeat_ref.count() is 0
+
+
+class ReferenceTest(unittest.TestCase):
+
+    def setUp(self):
+        self.client = redis.StrictRedis(host='localhost')
         self.client.flushall()
 
     def tearDown(self):
-        self.client = redis.StrictRedis(host='localhost') 
+        self.client = redis.StrictRedis(host='localhost')
         self.client.flushall()
 
-    def test_init_establishes_connection_once(self):
-        a = Reference(1, 'foo') 
-        client = Reference.client
-        b = Reference(2, 'bar')
-        assert Reference.client is Reference.client
-        assert client is Reference.client
-
     def test_init_creates_keys(self):
-        a = Reference(1, 'foo')
-        assert a.reflist_key == 'foo.reflist' 
-        assert a.resource_key == 'foo' 
-        assert a.times_modified_key == 'foo.times_modified'
+        p = Process()
+        a = p.create_reference('foo')
+        assert a.reflist_key == 'disref_foo.reflist'
+        assert a.resource_key == 'foo'
+        assert a.times_modified_key == 'disref_foo.times_modified'
+        p.stop()
 
     def test_lock_is_non_reentrant(self):
-        a = Reference(1, 'foo') 
+        p = Process()
+        a = p.create_reference('foo')
+
         assert a.lock() == True
         assert a.lock(block=False) == False
+        p.stop()
 
     def test_lock_acquires_and_releases(self):
-        a = Reference(1, 'foo')
+        p = Process()
+        a = p.create_reference('foo')
         assert a.lock() == True
         assert a.lock(block=False) == False
-        a.release() 
+        a.release()
         assert a.lock() == True
+        p.stop()
 
     def test_refresh_session_sets_time_initially(self):
-        a = Reference(1, 'foo')
+        p = Process()
+        a = p.create_reference('foo')
         a.refresh_session()
-        reflist = json.loads(Reference.client.get(a.reflist_key) or "{}")
+        reflist = json.loads(p.client.get(a.reflist_key) or "{}")
         assert len(reflist) == 1, "{0}: {1}".format(reflist, len(reflist))
-        assert isinstance(parser.parse(reflist[u'1']), datetime.datetime)
+        assert isinstance(parser.parse(reflist[p.id]), datetime.datetime)
+        p.stop()
 
     def test_refresh_session_resets_time(self):
-        a = Reference(1, 'foo')
-        reflist = json.loads(Reference.client.get(a.reflist_key) or "{}")
-        start = parser.parse(reflist[u'1'])
+        p = Process()
+        a = p.create_reference('foo')
+        reflist = json.loads(p.client.get(a.reflist_key) or "{}")
+        start = parser.parse(reflist[p.id])
         a.refresh_session()
-        reflist = json.loads(Reference.client.get(a.reflist_key) or "{}")
-        end = parser.parse(reflist[u'1'])
+        reflist = json.loads(p.client.get(a.reflist_key) or "{}")
+        end = parser.parse(reflist[p.id])
         assert end > start
         assert isinstance(end, datetime.datetime)
         assert isinstance(start, datetime.datetime)
+        p.stop()
 
     def test_get_and_increment_times_modified(self):
-        a = Reference(1, 'foo')
+        p = Process()
+        a = p.create_reference('foo')
         assert a.get_times_modified() == 0
         a.increment_times_modified()
         assert a.get_times_modified() == 1, a.get_times_modified()
         a.increment_times_modified()
         a.increment_times_modified()
         assert a.get_times_modified() == 3
-        b = Reference(2, 'foo')
-        b.increment_times_modified() 
+        p2 = Process()
+        b = p2.create_reference('foo')
+        b.increment_times_modified()
         assert b.get_times_modified() == 4
+        p.stop()
+        p2.stop()
 
     def test_count_for_one_reference(self):
-        a = Reference(1, 'foo')
+        p = Process()
+        a = p.create_reference('foo')
         assert a.count() == 1
+        p.stop()
 
     def test_count_for_multiple_references(self):
-        a = Reference(1, 'foo')
-        b = Reference(2, 'foo')
-        c = Reference(3, 'foo')
+        p = Process()
+        a = p.create_reference('foo')
+
+        p2 = Process()
+        b = p2.create_reference('foo')
+
+        p3 = Process()
+        c = p3.create_reference('foo')
+
         assert a.count() == b.count()
         assert b.count() == c.count()
         assert c.count() == 3
+        
+        p.stop()
+        p2.stop()
+        p3.stop()
 
     def test_count_decrements_when_dereferenced(self):
-        a = Reference(1, 'foo')
-        b = Reference(2, 'foo')
-        c = Reference(3, 'foo')
+        p = Process()
+        a = p.create_reference('foo')
+
+        p2 = Process()
+        b = p2.create_reference('foo')
+
+        p3 = Process()
+        c = p3.create_reference('foo')
+
         assert a.count() == b.count()
         assert b.count() == c.count()
         assert c.count() == 3
@@ -99,63 +223,92 @@ class DisRefTest(unittest.TestCase):
         assert a.count() == 2
         b.dereference()
         assert a.count() == 1
-        c.dereference() 
+        c.dereference()
         assert a.count() == 0, Reference.client.get(a.reflist_key)
+
+        p.stop()
+        p2.stop()
+        p3.stop()
 
     def test_remove_failed_processes(self):
         now = datetime.datetime.now(pytz.utc)
-        expired = now - datetime.timedelta(seconds=2 * Reference.TTL + 1)
+        expired = now - datetime.timedelta(seconds=2 * Process.TTL + 1)
         pids = {u'1': now.isoformat(),
                 u'2': expired.isoformat()}
-        a = Reference(5, 'biz')
+
+        p = Process()
+        a = p.create_reference('biz')
+
         target = a.remove_failed_processes(pids)
         assert u'2' not in target, target
         assert u'1' in target, target
         assert target[u'1'] == now.isoformat(), target
 
+        p.stop()
+
     def test_dereference_removes_pid_from_pids(self):
-        a = Reference(1, 'foo')
-        b = Reference(2, 'foo')
-        pids = json.loads(Reference.client.get(a.reflist_key) or "{}")
-        assert u'1' in pids
-        assert u'2' in pids
+        p = Process()
+        a = p.create_reference('foo')
+
+        p2 = Process()
+        b = p2.create_reference('foo')
+
+        pids = json.loads(Process.client.get(a.reflist_key) or "{}")
+        assert a._Reference__process.id in pids
+        assert b._Reference__process.id in pids
         a.dereference()
-        pids = json.loads(Reference.client.get(a.reflist_key) or "{}")
-        assert u'1' not in pids
+        pids = json.loads(a._Reference__process.client.get(a.reflist_key) or "{}")
+        assert a._Reference__process.id not in pids
         b.dereference()
-        pids = json.loads(Reference.client.get(b.reflist_key) or "{}")
-        assert u'2' not in pids
+        pids = json.loads(b._Reference__process.client.get(b.reflist_key) or "{}")
+        assert b._Reference__process.id not in pids
         assert len(pids) == 0
+
+        p.stop()
+        p2.stop()
 
     def test_dereference_cleans_up(self):
-        a = Reference(1, 'foo')
-        b = Reference(2, 'foo')
-        pids = json.loads(Reference.client.get(a.reflist_key) or "{}")
-        assert u'1' in pids
-        assert u'2' in pids
+        p = Process()
+        a = p.create_reference('foo')
+
+        p2 = Process()
+        b = p2.create_reference('foo')
+
+        pids = json.loads(Process.client.get(a.reflist_key) or "{}")
+        assert a._Reference__process.id in pids
+        assert b._Reference__process.id in pids
         a.dereference()
-        pids = json.loads(Reference.client.get(a.reflist_key) or "{}")
-        assert u'1' not in pids
+        pids = json.loads(a._Reference__process.client.get(a.reflist_key) or "{}")
+        assert a._Reference__process.id not in pids
         b.dereference()
-        pids = json.loads(Reference.client.get(b.reflist_key) or "{}")
-        assert u'2' not in pids
+        pids = json.loads(b._Reference__process.client.get(b.reflist_key) or "{}")
+        assert b._Reference__process.id not in pids
         assert len(pids) == 0
-        assert Reference.client.get(a.reflist_key) == None, Reference.client.get(a.reflist_key) 
-        assert Reference.client.get(a.resource_key) == None, Reference.client.get(a.resource_key)
-        assert Reference.client.get(a.times_modified_key) == None, Reference.client.get(a.times_modified_key)
+        assert Process.client.get(a.reflist_key) == None, Process.client.get(a.reflist_key) 
+        assert Process.client.get(a.resource_key) == None, Process.client.get(a.resource_key)
+        assert Process.client.get(a.times_modified_key) == None, Process.client.get(a.times_modified_key)
+
+        p.stop()
+        p2.stop()
 
     def test_dereference_handles_when_never_modified(self):
-        a = Reference(1, 'foo')
-        pids = json.loads(Reference.client.get(a.reflist_key) or "{}")
+        p = Process()
+        a = p.create_reference('foo')
+        pids = json.loads(a._Reference__process.client.get(a.reflist_key) or "{}")
         assert len(pids) == 1, pids
 
         a.dereference()
-        pids = json.loads(Reference.client.get(a.reflist_key) or "{}")
+        pids = json.loads(a._Reference__process.client.get(a.reflist_key) or "{}")
         assert len(pids) == 0, pids
 
+        p.stop()
+
     def test_dereference_calls_callback(self):
-        a = Reference(1, 'foo')
-        b = Reference(2, 'foo')
+        p = Process()
+        a = p.create_reference('foo')
+
+        p2 = Process()
+        b = p2.create_reference('foo')
         foo = [1]
         
         def callback(*args, **kwargs):
@@ -166,6 +319,9 @@ class DisRefTest(unittest.TestCase):
         a.dereference(callback, args=('second',))
         assert len(foo) == 0
 
+        p.stop()
+        p2.stop()
+
 class UpdateTest(unittest.TestCase):
 
     class UserUpdate(Update):
@@ -173,9 +329,9 @@ class UpdateTest(unittest.TestCase):
         def merge(self, user_update):
             for k, v in user_update.get('doc', {}).items():
                 if k not in self.doc:
-                    self.doc[k] = float(v) 
+                    self.doc[k] = float(v)
                 else:
-                    self.doc[k] += float(v) 
+                    self.doc[k] += float(v)
 
         def cache(self):
             obj = {
@@ -184,7 +340,8 @@ class UpdateTest(unittest.TestCase):
                     'collection': self.collection,
                     'database': self.database
             }
-            Reference.client.set(self.resource_id, json.dumps(obj))
+            client = self._Update__process.client
+            client.set(self.resource_id, json.dumps(obj))
 
         def execute(self):
             obj = {
@@ -193,38 +350,47 @@ class UpdateTest(unittest.TestCase):
                     'collection': self.collection,
                     'database': self.database
             }
-            Reference.client.set("{0}.write".format(self.resource_id), json.dumps(obj)) 
+            client = self._Update__process.client
+            client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
     def test_initializer_updates_ref_count(self):
-        a = UpdateTest.UserUpdate(pid=1, _id='123', database='test', collection='user', 
+        p = Process()
+        a = UpdateTest.UserUpdate(process=p,  _id='123', database='test', collection='user',
                 spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.})
 
-        reflist = json.loads(Reference.client.get(a.ref.reflist_key) or "{}")
+        client = a._Update__process.client
+        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
         assert len(reflist) == 1
-        assert u'1' in reflist 
+        assert a._Update__process.id in reflist
+
+        p.stop()
 
     def test_cache_caches(self):
-        a = UpdateTest.UserUpdate(pid=1, _id='12345', database='test', collection='user', 
+        p = Process()
+        a = UpdateTest.UserUpdate(process=p, _id='12345', database='test', collection='user',
                 spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
         a.cache()
-        cached = json.loads(Reference.client.get(a.resource_id) or "{}") 
-        assert cached == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0}, 
-                u'spec': {u'_id': 12345}, 
-                u'collection': u'user', 
+        client = a._Update__process.client
+        cached = json.loads(client.get(a.resource_id) or "{}")
+        assert cached == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
+                u'spec': {u'_id': 12345},
+                u'collection': u'user',
                 u'database': u'test'}
 
-        Reference.client.flushall()
-        b = UpdateTest.UserUpdate(pid=1, _id='456', database='test', collection='user',
+        client.flushall()
+        b = UpdateTest.UserUpdate(process=p, _id='456', database='test', collection='user',
                 spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.})
-        c = UpdateTest.UserUpdate(pid=2, _id='456', database='test', collection='user',
+        p2 = Process()
+        c = UpdateTest.UserUpdate(process=p2, _id='456', database='test', collection='user',
                 spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.})
 
-        assert Reference.client.get(b.resource_id) is None, Reference.client.get(b.resource_id)
+        client = a._Update__process.client
+        assert client.get(b.resource_id) is None, client.get(b.resource_id)
 
         assert c.ref.count() == 2, c.ref.count()
         b.end_session()
         assert c.ref.count() == 1, c.ref.count()
-        cached = json.loads(Reference.client.get(b.resource_id) or "{}") 
+        cached = json.loads(client.get(b.resource_id) or "{}") 
 
         observed_doc = cached['doc']
         observed_spec = cached['spec']
@@ -248,19 +414,22 @@ class UpdateTest(unittest.TestCase):
 
         c.end_session()
         assert c.ref.count() == 0, c.ref.count()
-        assert Reference.client.get(c.resource_id) is None, Reference.client.get(c.resource_id)
-        
-        target = json.loads(Reference.client.get("{0}.write".format(b.resource_id)) or "{}") 
+        assert client.get(c.resource_id) is None, client.get(c.resource_id)
+
+        target = json.loads(client.get("{0}.write".format(b.resource_id)) or "{}")
 
         expected_doc = {u'd': 8.0, u'e': 10.0, u'f': 12.0}
         expected_spec = {u'_id': 456}
         expected_coll = u'user'
-        expected_db = u'test' 
+        expected_db = u'test'
        
         for k, v in target.get('doc').items():
             assert expected_doc[k] == v
         for k, v in expected_doc.items():
             assert target['doc'][k] == v
+
+        p.stop()
+        p2.stop()
 
     def test_end_session_raises_when_deadlocked(self):
         pass
@@ -286,17 +455,17 @@ class LruCacheTest(unittest.TestCase):
                 assert self.__called
             def assert_merged(self, other):
                 assert other is self.__other
-        return Update(key) 
+        return Update(key)
 
     def test_set_reorders_repeated_elements(self):
         a = self.get_update('a')
         b = self.get_update('b')
         c = self.get_update('c')
-        self.cache.set(1, a) 
+        self.cache.set(1, a)
         assert self.cache.size() == 1
-        self.cache.set(2, b) 
+        self.cache.set(2, b)
         assert self.cache.size() == 2
-        self.cache.set(1, a) 
+        self.cache.set(1, a)
         assert self.cache.size() == 2
         a.assert_merged(a)
         self.cache.expire_oldest()
@@ -311,11 +480,11 @@ class LruCacheTest(unittest.TestCase):
         e = self.get_update('e')
         f = self.get_update('f')
 
-        assert self.cache.size() == 0 
+        assert self.cache.size() == 0
         self.cache.set('a', a)
         assert self.cache.size() == 1
         self.cache.set('b', b)
-        assert self.cache.size() == 2 
+        assert self.cache.size() == 2
         self.cache.set('c', c)
         assert self.cache.size() == 3
         self.cache.set('d', d)
@@ -350,11 +519,11 @@ class LruCacheTest(unittest.TestCase):
 
     def test_expire_all_expires_all(self):
         updates = [self.get_update('a'),
-            self.get_update('b'),
-            self.get_update('c'),
-            self.get_update('d'),
-            self.get_update('e')]
-        
+                   self.get_update('b'),
+                   self.get_update('c'),
+                   self.get_update('d'),
+                   self.get_update('e')]
+       
         for size, update in enumerate(updates):
             self.cache.set(update.key, update)
             assert self.cache.size() == size + 1
@@ -370,11 +539,10 @@ class LruCacheTest(unittest.TestCase):
                 raise Exception("Failed.")
 
         failing = FailingUpdate()
-        self.cache.set('a', failing) 
+        self.cache.set('a', failing)
         try:
             self.cache.expire('a')
         except Exception, e:
             pass
 
         assert self.cache.get_last_failed() is failing
-
