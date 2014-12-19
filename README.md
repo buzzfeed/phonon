@@ -78,6 +78,9 @@ t1.start()
 t2.start()
 t1.join()
 t2.join()
+
+p1.stop()
+p2.stop()
 ```
 
 Whoever is last to update the record in the cache will know since `count()` will return `1`. At that point we'll know the record is finished being updated, and is ready to be written to the database. 
@@ -107,4 +110,5 @@ for user_update in user_updates:
     lru_cache.set(user_update.user_id, Update(process=p, doc=**user_update))
 
 lru_cache.expire_all()
+p.stop()
 ```

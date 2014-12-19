@@ -11,8 +11,8 @@ setup(
     name='disref',
     version='0.2',
     packages=find_packages(),
-    author='Andrew Kelleher', 
-    author_email='andrew.kelleher@buzzfeed.com', 
+    author='Andrew Kelleher, Matthew Semanyshyn',
+    author_email='andrew.kelleher@buzzfeed.com, matthew.semanyshyn@buzzfeed.com',
     description='Provides easy, fault tolerant, distributed references with redis as a backend.',
     test_suite='test',
     install_requires=[
