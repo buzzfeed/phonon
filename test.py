@@ -28,6 +28,16 @@ class ProcessTest(unittest.TestCase):
         assert p2_connection['host'] != "notlocalhost"
         assert p2_connection['port'] != 123
 
+    def test_process_registry_tracks_references(self):
+        p1 = Process()
+        a = p1.create_reference("foo")
+
+        assert p1.client.hexists(p1.registry_key, a.resource_key)
+
+        a.dereference()
+
+        assert p1.client.hexists(p1.registry_key, a.resource_key) is False
+
 
 class ReferenceTest(unittest.TestCase):
 
