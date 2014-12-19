@@ -1,13 +1,13 @@
 import sherlock
 import redis
 import uuid
+import datetime
+import threading
 
-from disref import get_logger
+from disref import get_logger, DISREF_NAMESPACE, LOCAL_TZ
 from disref.reference import Reference
 
-
 logger = get_logger(__name__)
-
 
 class Process(object):
     """
@@ -16,13 +16,15 @@ class Process(object):
     Redis, shared by all instances. All References should be added through a
     process instance.
 
+    When finished with the process instance, call the stop function.
+
     """
 
     TTL = 30 * 60  # 30 minutes
     RETRY_SLEEP = 0.5    # Second
     TIMEOUT = 500
 
-    def __init__(self, session_length=int(0.5*TTL), host='localhost', port=6379, db=1):
+    def __init__(self, session_length=int(0.5*TTL), host='localhost', port=6379, db=1, heartbeat_interval=10):
         """
         :param session_length int: The session length for the resource. e.g. If
             this represents an update for a User, the session_length would be
@@ -30,6 +32,9 @@ class Process(object):
             length of the TTL for the Reference.
         :param str host: The host to connect to redis over.
         :param int port: The port to connect to redis on.
+        :param int heartbeat_interval: The frequency in seconds with which to
+            update the heartbeat for this process.
+
 
         """
         self.id = unicode(uuid.uuid4())
@@ -50,9 +55,15 @@ class Process(object):
 
         self.client = Process.client
 
+        self.heartbeat_interval = heartbeat_interval
+        self.heartbeat_hash_name = "{0}_heartbeat".format(DISREF_NAMESPACE)
+        self.__heartbeat_ref = self.create_reference(self.heartbeat_hash_name)
+        self.__update_heartbeat()
 
     def create_reference(self, resource, block=True):
         """
+        Creates a Reference object owned by this process.
+
         :param bool block: Optional. Whether or not to block when establishing
             locks.
         :param str resource: An identifier for the resource. For example:
@@ -61,3 +72,34 @@ class Process(object):
         :returns: The created Reference object
         """
         return Reference(self, resource, block)
+
+    def __update_heartbeat(self):
+        """
+        Records the timestamp at a configurable interval to ensure the process is still alive.
+        """
+        self.__heartbeat_timer = None
+
+        try:
+            if self.__heartbeat_ref.lock():
+                self.client.hset(self.heartbeat_hash_name, self.id, datetime.datetime.now(LOCAL_TZ).isoformat())
+        finally:
+            self.__heartbeat_ref.release()
+
+        self.__heartbeat_timer = threading.Timer(self.heartbeat_interval, self.__update_heartbeat)
+        self.__heartbeat_timer.start()
+
+    def stop(self):
+        """
+        Preforms cleanup for the Process instance when it is to be terminated.
+        """
+        if self.__heartbeat_timer:
+            self.__heartbeat_timer.cancel()
+
+        try:
+            if self.__heartbeat_ref.lock():
+                self.__heartbeat_ref.dereference()
+        finally:
+            self.__heartbeat_ref.release()
+
+    def __del__(self):
+        self.stop()
