@@ -2,15 +2,17 @@ import unittest
 import json
 import redis
 import datetime
-from dateutil import parser
-import datetime
 import pytz
 import time
+
+from dateutil import parser
 
 from disref.reference import Reference
 from disref.process import Process
 from disref.update import Update
 from disref.cache import LruCache
+
+
 
 class ProcessTest(unittest.TestCase):
 
@@ -58,7 +60,7 @@ class ProcessTest(unittest.TestCase):
 
         new_time = p.client.hget(p.heartbeat_hash_name, p.id)
 
-        assert parser.parse(new_time) >= parser.parse(current_time) + datetime.timedelta(p.heartbeat_interval/(24*60*60))
+        assert parser.parse(new_time) >= parser.parse(current_time) + datetime.timedelta(seoconds=p.heartbeat_interval)
 
         p.stop()
 
@@ -117,6 +119,8 @@ class ProcessTest(unittest.TestCase):
         a.dereference()
 
         assert p1.client.hexists(p1.registry_key, a.resource_key) is False
+
+        p1.stop()
 
 
 

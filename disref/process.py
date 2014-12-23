@@ -3,6 +3,9 @@ import redis
 import uuid
 import datetime
 import threading
+import math
+
+from dateutil import parser
 
 from disref import get_logger, DISREF_NAMESPACE
 from disref.reference import Reference
@@ -55,7 +58,7 @@ class Process(object):
 
         self.client = Process.client
 
-        self.registry_key = "{0}_{1}".format(DISREF_NAMESPACE, self.id)
+        self.registry_key = self._get_registry_key(self.id)
 
         self.heartbeat_interval = heartbeat_interval
         self.heartbeat_hash_name = "{0}_heartbeat".format(DISREF_NAMESPACE)
@@ -74,8 +77,24 @@ class Process(object):
         :returns: The created Reference object
         """
 
-        self.client.hset(self.registry_key, resource, 1)
+        self.add_to_registry(resource)
         return Reference(self, resource, block)
+
+    def add_to_registry(resource, registry_key=None):
+        if registry_key is None:
+            registry_key = self.registry_key
+
+        self.client.hset(self.registry_key, resource, 1)
+
+    def remove_from_registry(resource, registry_key=None):
+        if registry_key is None:
+            registry_key = self.registry_key
+
+        self.client.hdel(self.registry_key, resource)
+
+
+    def _get_registry_key(pid):
+        return "{0}_{1}".format(DISREF_NAMESPACE, pid)
 
     def __update_heartbeat(self):
         """
@@ -91,6 +110,47 @@ class Process(object):
 
         self.__heartbeat_timer = threading.Timer(self.heartbeat_interval, self.__update_heartbeat)
         self.__heartbeat_timer.start()
+
+    def __check_heartbeats(self):
+        """
+        Ensures that all other processes are still alive.
+        """
+        failed_pids = []
+        heartbeats = self.client.hgetall(self.heartbeat_hash_name)
+        for pid, time in heartbeats.item():
+            if parser.parse(time) <= datetime.datetime.now() - datetime.timedelta(seconds=(5*self.heartbeat_interval)):
+                failed_pids.append(pid)
+
+        active_process_count = len(heartbeats) - len(failed_pids)
+        for failed_pid in failed_pids:
+            failed_process_registry_key = self._get_registry_key(failed_pid)
+            failed_process_registry_ref = self.create_reference(failed_registry_key)
+
+            try:
+                failed_registry_ref.lock()
+                failed_process_registry = self.client.hkeys(failed_process_registry_key)
+
+                if failed_pid == self.pid:
+                    recovering_references = failed_process_registry_ref
+                    self.id = unicode(uuid.uuid4())
+                    self.registry_key = self._get_registry_key(self.id)
+                else:
+                    recovering_references = failed_process_registry[0:int(math.ceil(float(len(failed_process_registry))/active_process_count))]
+
+                for recovering_reference in recovering_references:
+                    self.create_reference(recovering_reference)
+
+                if self.client.hdel(failed_process_registry_key, recovering_references) == 0:
+                    # No futher references to recovery.
+                    self.client.hdel(self.heartbeat_hash_name, failed_pid)
+            except Reference.AlreadyLocked:
+                logger.error("Reference already locked")
+            finally:
+                failed_registry_ref.dereference()
+                failed_registry_ref.release()
+
+
+
 
     def stop(self):
         """
