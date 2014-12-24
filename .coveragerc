@@ -3,6 +3,8 @@ branch = True
 source = disref/
 include =
     disref/update.py
+    disref/reference.py
+    disref/process.py
     disref/__init__.py 
     disref/cache.py
 [report]

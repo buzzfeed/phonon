@@ -2,3 +2,5 @@
 disref.egg-info/
 .coverage
 dist
+redis-stable
+redis-stable.tar.gz
