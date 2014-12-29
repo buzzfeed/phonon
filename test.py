@@ -1,8 +1,8 @@
 import unittest
 import json
 import redis
-import datetime
 from dateutil import parser
+import datetime
 import pytz
 import time
 import logging
@@ -106,6 +106,18 @@ class ProcessTest(unittest.TestCase):
         p2.stop()
 
         assert p2._Process__heartbeat_ref.count() is 0
+
+    def test_process_registry_tracks_references(self):
+        p1 = Process()
+        a = p1.create_reference("foo")
+
+        assert p1.client.hexists(p1.registry_key, a.resource_key)
+
+        a.dereference()
+
+        assert p1.client.hexists(p1.registry_key, a.resource_key) is False
+
+        p1.stop()
 
 
 class ReferenceTest(unittest.TestCase):

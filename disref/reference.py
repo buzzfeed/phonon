@@ -238,5 +238,7 @@ class Reference(object):
             if rc:
                 client.delete(self.resource_key, self.reflist_key, self.times_modified_key)
 
+        client.hdel(self.__process.registry_key, self.resource_key)
+
         return rc
 

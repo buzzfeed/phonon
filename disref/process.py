@@ -54,12 +54,16 @@ class Process(object):
                                 .format(connection_kwargs['port'], connection_kwargs['host'], connection_kwargs['db']))
 
         self.client = Process.client
+   
+        self.registry_key = "{0}_{1}".format(DISREF_NAMESPACE, self.id)
 
         self.heartbeat_interval = heartbeat_interval
         self.heartbeat_hash_name = "{0}_heartbeat".format(DISREF_NAMESPACE)
         self.__heartbeat_ref = self.create_reference(self.heartbeat_hash_name)
         self.__heartbeat_timer = None
         self.__update_heartbeat()
+
+
 
     def create_reference(self, resource, block=True):
         """
@@ -72,6 +76,8 @@ class Process(object):
 
         :returns: The created Reference object
         """
+
+        self.client.hset(self.registry_key, resource, 1)
         return Reference(self, resource, block)
 
     def __update_heartbeat(self):
