@@ -1,4 +1,5 @@
 import unittest
+import mock
 import json
 import redis
 from dateutil import parser
@@ -13,6 +14,11 @@ from disref.update import Update
 from disref.cache import LruCache
 
 logging.disable(logging.CRITICAL)
+
+
+def get_milliseconds_timestamp():
+    return (datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1)).total_seconds() * 1000
+
 
 class ProcessTest(unittest.TestCase):
 
@@ -51,52 +57,51 @@ class ProcessTest(unittest.TestCase):
 
         p.stop()
 
-    def test_heartbeat_updates(self):
-        p = Process(heartbeat_interval=2)
+
+    @mock.patch('time.time', side_effect=get_milliseconds_timestamp)
+    def test_heartbeat_updates(self, time_time_patched):
+        p = Process(heartbeat_interval=.1)
 
         current_time = p.client.hget(p.heartbeat_hash_name, p.id)
 
-        time.sleep(3)
+        time.sleep(.5)
 
         new_time = p.client.hget(p.heartbeat_hash_name, p.id)
 
-        assert int(new_time) >= int(current_time) + p.heartbeat_interval
+        assert int(new_time) >= int(current_time) + (p.heartbeat_interval * 1000)
 
         p.stop()
 
-    def test_multiple_heartbeats_update(self):
-        p1 = Process(heartbeat_interval=2)
-        p2 = Process(heartbeat_interval=2)
-        p3 = Process(heartbeat_interval=2)
+    @mock.patch('time.time', side_effect=get_milliseconds_timestamp)
+    def test_multiple_heartbeats_update(self, time_time_patched):
+        p1 = Process(heartbeat_interval=.1)
+        p2 = Process(heartbeat_interval=.1)
 
         current_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
         current_time_2 = p2.client.hget(p2.heartbeat_hash_name, p2.id)
-        current_time_3 = p3.client.hget(p3.heartbeat_hash_name, p3.id)
 
-        time.sleep(3)
+        time.sleep(1)
 
         new_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
         new_time_2 = p2.client.hget(p2.heartbeat_hash_name, p2.id)
-        new_time_3 = p3.client.hget(p3.heartbeat_hash_name, p3.id)
 
-        assert int(new_time_1) >= int(current_time_1) + p1.heartbeat_interval
-        assert int(new_time_2) >= int(current_time_2) + p2.heartbeat_interval
-        assert int(new_time_3) >= int(current_time_3) + p3.heartbeat_interval
+        assert int(new_time_1) >= int(current_time_1) + (p1.heartbeat_interval * 1000)
+        assert int(new_time_2) >= int(current_time_2) + (p2.heartbeat_interval * 1000)
 
         p1.stop()
         p2.stop()
-        p3.stop()
 
-    def test_stop_cleans_up(self):
-        p1 = Process(heartbeat_interval=2)
-        p2 = Process(heartbeat_interval=2)
+    @mock.patch('time.time', side_effect=get_milliseconds_timestamp)
+    def test_stop_cleans_up(self, time_time_patched):
+        p1 = Process(heartbeat_interval=.1)
+        p2 = Process(heartbeat_interval=.1)
 
         current_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
 
         assert p2._Process__heartbeat_ref.count() is 2
         p1.stop()
 
-        time.sleep(3)
+        time.sleep(.5)
 
         new_time_2 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
 

@@ -57,6 +57,8 @@ class Process(object):
    
         self.registry_key = "{0}_{1}".format(DISREF_NAMESPACE, self.id)
 
+        self.registry_key = "{0}_{1}".format(DISREF_NAMESPACE, self.id)
+
         self.heartbeat_interval = heartbeat_interval
         self.heartbeat_hash_name = "{0}_heartbeat".format(DISREF_NAMESPACE)
         self.__heartbeat_ref = self.create_reference(self.heartbeat_hash_name)
@@ -95,6 +97,7 @@ class Process(object):
             self.__heartbeat_ref.release()
 
         self.__heartbeat_timer = threading.Timer(self.heartbeat_interval, self.__update_heartbeat)
+        self.__heartbeat_timer.daemon = True
         self.__heartbeat_timer.start()
 
     def stop(self):
