@@ -2,7 +2,7 @@ import sherlock
 import redis
 import uuid
 
-from disref import get_logger
+from disref import get_logger, DISREF_NAMESPACE
 from disref.reference import Reference
 
 
@@ -50,6 +50,8 @@ class Process(object):
 
         self.client = Process.client
 
+        self.registry_key = "{0}_{1}".format(DISREF_NAMESPACE, self.id)
+
 
     def create_reference(self, resource, block=True):
         """
@@ -60,4 +62,6 @@ class Process(object):
 
         :returns: The created Reference object
         """
+
+        self.client.hset(self.registry_key, resource, 1)
         return Reference(self, resource, block)
