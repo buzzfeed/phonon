@@ -95,6 +95,7 @@ class Process(object):
             self.__heartbeat_ref.release()
 
         self.__heartbeat_timer = threading.Timer(self.heartbeat_interval, self.__update_heartbeat)
+        self.__heartbeat_timer.daemon = True
         self.__heartbeat_timer.start()
 
     def stop(self):
