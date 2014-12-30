@@ -1,10 +1,9 @@
-import sherlock
 import redis
 import uuid
 import time
 import threading
 
-from disref import get_logger, DISREF_NAMESPACE
+from disref import get_logger, DisRefError, DISREF_NAMESPACE
 from disref.reference import Reference
 
 logger = get_logger(__name__)
@@ -22,7 +21,11 @@ class Process(object):
 
     TTL = 30 * 60  # 30 minutes
     RETRY_SLEEP = 0.5    # Second
-    TIMEOUT = 500
+    BLOCKING_TIMEOUT = 500
+
+
+    class AlreadyLocked(DisRefError):
+        pass
 
     def __init__(self, session_length=int(0.5*TTL), host='localhost', port=6379, db=1, heartbeat_interval=10):
         """
@@ -34,18 +37,12 @@ class Process(object):
         :param int port: The port to connect to redis on.
         :param int heartbeat_interval: The frequency in seconds with which to
             update the heartbeat for this process.
-
-
         """
         self.id = unicode(uuid.uuid4())
         self.session_length = session_length
 
         if not hasattr(Process, 'client'):
             Process.client = redis.StrictRedis(host=host, port=port, db=db)
-            sherlock.configure(backend=sherlock.backends.REDIS,
-                               expire=self.TTL,
-                               retry_interval=self.RETRY_SLEEP,
-                               timeout=self.TIMEOUT)
         else:
             connection_kwargs = Process.client.connection_pool.connection_kwargs
             if connection_kwargs['port'] != port or connection_kwargs['host'] != host or connection_kwargs['db'] != db:
@@ -54,7 +51,7 @@ class Process(object):
                                 .format(connection_kwargs['port'], connection_kwargs['host'], connection_kwargs['db']))
 
         self.client = Process.client
-   
+
         self.registry_key = "{0}_{1}".format(DISREF_NAMESPACE, self.id)
 
         self.heartbeat_interval = heartbeat_interval
@@ -62,8 +59,6 @@ class Process(object):
         self.__heartbeat_ref = self.create_reference(self.heartbeat_hash_name)
         self.__heartbeat_timer = None
         self.__update_heartbeat()
-
-
 
     def create_reference(self, resource, block=True):
         """
@@ -80,19 +75,35 @@ class Process(object):
         self.client.hset(self.registry_key, resource, 1)
         return Reference(self, resource, block)
 
+    def lock(self, lock_key, block=True):
+        """
+        Issues a lock for a given key.
+
+        Usage:
+            with process.lock( some_key ):
+                pass
+
+        :param str lock_key: The key to lock
+        :param bool block: Optional. Whether or not to block when establishing
+            lock.
+        """
+        
+        blocking_timeout = self.BLOCKING_TIMEOUT if block else 0
+        return self.client.lock(name=lock_key, timeout=self.TTL, 
+                        sleep=self.RETRY_SLEEP, blocking_timeout=blocking_timeout)
+
+
     def __update_heartbeat(self):
         """
-        Records the timestamp at a configurable interval to ensure the process is still alive.
+        Records the timestamp at a configurable interval to ensure the process
+        is still alive.
         """
         if self.__heartbeat_timer:
             self.__heartbeat_timer.cancel()
             self.__heartbeat_timer = None
 
-        try:
-            if self.__heartbeat_ref.lock():
-                self.client.hset(self.heartbeat_hash_name, self.id, int(time.time()))
-        finally:
-            self.__heartbeat_ref.release()
+        with self.lock(self.__heartbeat_ref.lock_key):
+            self.client.hset(self.heartbeat_hash_name, self.id, int(time.time()))
 
         self.__heartbeat_timer = threading.Timer(self.heartbeat_interval, self.__update_heartbeat)
         self.__heartbeat_timer.daemon = True
@@ -105,11 +116,8 @@ class Process(object):
         if self.__heartbeat_timer:
             self.__heartbeat_timer.cancel()
 
-        try:
-            if self.__heartbeat_ref.lock():
-                self.__heartbeat_ref.dereference()
-        finally:
-            self.__heartbeat_ref.release()
+        with self.__heartbeat_ref.lock():
+            self.__heartbeat_ref.dereference()
 
     def __del__(self):
         self.stop()

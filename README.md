@@ -51,24 +51,24 @@ email_verification_service = p2.create_reference(resource='me')
 def lookup_email_and_apply_to_record(record, reference):
     email = get_email(record)
     try:
-        reference.lock()
-        update_record_with_email(record, email)
-        if reference.count() == 1:
-            write_record_to_database(record)
-        reference.release()
-    except disref.AlreadyLocked, e:
-        raise Exception("Timed out acquiring lock!")
+        with email_verification_service.lock():
+            update_record_with_email(record, email)
+            if email_verification_service.count() == 1:
+                write_record_to_database(record)
+    except Process.AlreadyLocked, e:
+        # Unable to acquire lock. Handle as needed.  
+        pass
 
 def verify_address_and_apply_to_record(record, reference):
     address = get_address(record)
     try:
-        reference.lock()
-        update_record_with_address(record, address)
-        if reference.count() == 1:
-            write_record_to_database(record)
-        reference.release()
-    except disref.AlreadyLocked, e:
-        raise Exception("Timed out acquiring lock!")
+        with address_lookup_service.lock():
+            update_record_with_address(record, address)
+            if address_lookup_service.count() == 1:
+                write_record_to_database(record)
+    except Process.AlreadyLocked, e:
+        # Unable to acquire lock. Handle as needed.
+        pass
 
 t1 = threading.Thread(target=lookup_email_and_apply_to_record,
     args=('me', email_verification_service))
