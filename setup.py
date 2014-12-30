@@ -16,7 +16,6 @@ setup(
     description='Provides easy, fault tolerant, distributed references with redis as a backend.',
     test_suite='test',
     install_requires=[
-        'sherlock==0.3.0',
         'pytz==2014.10',
     ],
     url='http://www.github.com/buzzfeed/disref',
