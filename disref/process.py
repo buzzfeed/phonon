@@ -1,4 +1,3 @@
-import sherlock
 import redis
 import uuid
 import time
@@ -22,7 +21,7 @@ class Process(object):
 
     TTL = 30 * 60  # 30 minutes
     RETRY_SLEEP = 0.5    # Second
-    TIMEOUT = 500
+    BLOCKING_TIMEOUT = 500
 
     def __init__(self, session_length=int(0.5*TTL), host='localhost', port=6379, db=1, heartbeat_interval=10):
         """
@@ -42,10 +41,6 @@ class Process(object):
 
         if not hasattr(Process, 'client'):
             Process.client = redis.StrictRedis(host=host, port=port, db=db)
-            sherlock.configure(backend=sherlock.backends.REDIS,
-                               expire=self.TTL,
-                               retry_interval=self.RETRY_SLEEP,
-                               timeout=self.TIMEOUT)
         else:
             connection_kwargs = Process.client.connection_pool.connection_kwargs
             if connection_kwargs['port'] != port or connection_kwargs['host'] != host or connection_kwargs['db'] != db:
@@ -88,11 +83,8 @@ class Process(object):
             self.__heartbeat_timer.cancel()
             self.__heartbeat_timer = None
 
-        try:
-            if self.__heartbeat_ref.lock():
-                self.client.hset(self.heartbeat_hash_name, self.id, int(time.time()))
-        finally:
-            self.__heartbeat_ref.release()
+        with self.__heartbeat_ref.lock():
+            self.client.hset(self.heartbeat_hash_name, self.id, int(time.time()))
 
         self.__heartbeat_timer = threading.Timer(self.heartbeat_interval, self.__update_heartbeat)
         self.__heartbeat_timer.daemon = True
@@ -105,11 +97,8 @@ class Process(object):
         if self.__heartbeat_timer:
             self.__heartbeat_timer.cancel()
 
-        try:
-            if self.__heartbeat_ref.lock():
-                self.__heartbeat_ref.dereference()
-        finally:
-            self.__heartbeat_ref.release()
+        with self.__heartbeat_ref.lock():
+            self.__heartbeat_ref.dereference()
 
     def __del__(self):
         self.stop()

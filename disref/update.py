@@ -60,17 +60,9 @@ class Update(object):
         used to write to redis or your database backend as efficiently as
         possible.
         """
-        try:
-            locked = False
-            if self.ref.lock(block=block):
-                locked = True
-                if not self.ref.dereference(self.__execute):
-                    self.__cache()
-            else: 
-                raise Reference.AlreadyLocked("Failed to lock on {0}.") 
-        finally:
-            if locked:
-                self.ref.release()
+        with self.ref.lock(block=block):
+            if not self.ref.dereference(self.__execute):
+                self.__cache()
 
     def __cache(self):
         """
