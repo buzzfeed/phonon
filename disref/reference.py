@@ -1,6 +1,6 @@
 import datetime
 import json
-import sherlock
+import sys
 
 from dateutil import parser
 
@@ -22,7 +22,7 @@ class Reference(object):
     More in-depth:
 
     When a process acquires a `Reference` to a resource it attempts to lock
-    that resource. It will block by default for a total of Process.TIMEOUT
+    that resource. It will block by default for a total of Process.BLOCKING_TIMEOUT
     seconds (defaults to 500s) before raising a Reference.AlreadyLocked
     exception
 
@@ -45,6 +45,21 @@ class Reference(object):
 
     """
 
+    class Lock(object):
+        def __init__(self, reference, block=None):
+            self.reference = reference
+            self.block = block
+
+        def __enter__(self):
+            lock = self.reference._lock(block=self.block)
+            if lock:
+                return lock
+            else:
+                raise Reference.AlreadyLocked(
+                        "Could not acquire a lock. Possible deadlock for rid: {0}".format(self.reference.resource_key))
+
+        def __exit__(self, type, value, traceback):
+            self.reference._release()
 
 
     class AlreadyLocked(DisRefError):
@@ -62,21 +77,19 @@ class Reference(object):
        
         self.resource_key = resource
         self.block = block
+        self.lock_key = "{0}_{1}.lock".format(DISREF_NAMESPACE, resource)
         self.reflist_key = "{0}_{1}.reflist".format(DISREF_NAMESPACE, resource)
         self.times_modified_key = "{0}_{1}.times_modified".format(DISREF_NAMESPACE, resource)
         self.__lock = None
         self.__process = process
 
-        if self.lock(block=self.block):
+        with self.lock(self.block):
             self.refresh_session()
-            self.release()
-        else:
-            raise Reference.AlreadyLocked(
-                    "Could not acquire a reference. Possible deadlock for pid: \
-                    {0}, rid: {1}".format(self.__process.id, self.resource_key))
-
 
     def lock(self, block=None):
+        return Reference.Lock(self, block)
+
+    def _lock(self, block=None):
         """
         Locks the resource represented by this reference. 
 
@@ -85,15 +98,21 @@ class Reference(object):
         :returns: Whether or not the lock was successfully acquired.
         :rtype: bool
         """
+
+        client = self.__process.client
+
         if block is None:
             block = self.block
-        if self.__lock is None:
-            self.__lock = sherlock.RedisLock(self.resource_key)
 
-        return self.__lock.acquire(blocking=block)
-
-    def release(self):
         if self.__lock is None:
+            self.__lock = client.lock(name=self.lock_key, timeout=self.__process.TTL, 
+                sleep=self.__process.RETRY_SLEEP, blocking_timeout=self.__process.BLOCKING_TIMEOUT)
+
+        self.__lock.blocking = block
+        return self.__lock.acquire()
+
+    def _release(self):
+        if self.__lock is None or self.__lock.local.token is None:
             return True
         return self.__lock.release()
 
