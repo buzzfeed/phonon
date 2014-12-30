@@ -147,18 +147,31 @@ class ReferenceTest(unittest.TestCase):
         p = Process()
         a = p.create_reference('foo')
 
-        assert a.lock() == True
-        assert a.lock(block=False) == False
+        with a.lock():
+            try:
+                lock = None
+                with a.lock(block=False) as lock:
+                    pass
+            except:
+                assert lock is None
         p.stop()
 
     def test_lock_acquires_and_releases(self):
         p = Process()
         a = p.create_reference('foo')
-        assert a.lock() == True
-        assert a.lock(block=False) == False
-        a.release()
-        assert a.lock() == True
+        with a.lock():
+            try:
+                lock = None
+                with a.lock(block=False) as lock:
+                    pass
+            except:
+                assert lock is None
+
+        with a.lock():
+            pass
+
         p.stop()
+
 
     def test_refresh_session_sets_time_initially(self):
         p = Process()
