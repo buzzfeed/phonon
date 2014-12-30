@@ -1,10 +1,10 @@
 import datetime
 import json
-import sherlock
+import sys
 
 from dateutil import parser
 
-from disref import get_logger, DisRefError, DISREF_NAMESPACE, LOCAL_TZ
+from disref import get_logger, DISREF_NAMESPACE, LOCAL_TZ
 
 logger = get_logger(__name__)
 
@@ -22,7 +22,7 @@ class Reference(object):
     More in-depth:
 
     When a process acquires a `Reference` to a resource it attempts to lock
-    that resource. It will block by default for a total of Process.TIMEOUT
+    that resource. It will block by default for a total of Process.BLOCKING_TIMEOUT
     seconds (defaults to 500s) before raising a Reference.AlreadyLocked
     exception
 
@@ -45,11 +45,6 @@ class Reference(object):
 
     """
 
-
-
-    class AlreadyLocked(DisRefError):
-        pass
-
     def __init__(self, process, resource, block):
         """
         :param Process process: The Process to which this reference belongs
@@ -59,43 +54,31 @@ class Reference(object):
             locks.
 
         """
-       
+
         self.resource_key = resource
         self.block = block
+        self.lock_key = "{0}_{1}.lock".format(DISREF_NAMESPACE, resource)
         self.reflist_key = "{0}_{1}.reflist".format(DISREF_NAMESPACE, resource)
         self.times_modified_key = "{0}_{1}.times_modified".format(DISREF_NAMESPACE, resource)
         self.__lock = None
         self.__process = process
 
-        if self.lock(block=self.block):
+        with self.lock(self.block):
             self.refresh_session()
-            self.release()
-        else:
-            raise Reference.AlreadyLocked(
-                    "Could not acquire a reference. Possible deadlock for pid: \
-                    {0}, rid: {1}".format(self.__process.id, self.resource_key))
-
 
     def lock(self, block=None):
         """
-        Locks the resource represented by this reference. 
+        Issues a lock for this reference
 
-        :param bool block: Whether or not to block while acquiring the lock.
+        Usage:
+            with reference.lock():
+                pass
 
-        :returns: Whether or not the lock was successfully acquired.
-        :rtype: bool
+        :param bool block: Optional. Whether or not to block when establishing
+            lock.
         """
-        if block is None:
-            block = self.block
-        if self.__lock is None:
-            self.__lock = sherlock.RedisLock(self.resource_key)
 
-        return self.__lock.acquire(blocking=block)
-
-    def release(self):
-        if self.__lock is None:
-            return True
-        return self.__lock.release()
+        return self.__process.lock(self.lock_key, block)
 
     def refresh_session(self):
         """
