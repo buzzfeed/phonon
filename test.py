@@ -124,6 +124,26 @@ class ProcessTest(unittest.TestCase):
 
         p1.stop()
 
+    def test_lock_wrapper(self):
+        p1 = Process()
+        lock = Process.Lock(p1, "foo", True)
+        lock2 = Process.Lock(p1, "foo", False)
+
+        assert lock.block is True
+        assert lock2.block is False
+        assert lock.lock_key is "foo"
+        assert lock.client is p1.client
+        assert lock._Lock__process is p1
+        assert lock._Lock__lock is None
+
+        with lock as acquired_lock:
+            assert lock._Lock__lock is acquired_lock
+            assert(isinstance(acquired_lock, redis.lock.LuaLock))
+
+            self.assertRaises(Process.AlreadyLocked, lock2.__enter__)
+
+        p1.stop()
+
 
 class ReferenceTest(unittest.TestCase):
 
@@ -147,18 +167,31 @@ class ReferenceTest(unittest.TestCase):
         p = Process()
         a = p.create_reference('foo')
 
-        assert a.lock() == True
-        assert a.lock(block=False) == False
+        with a.lock():
+            try:
+                lock = None
+                with a.lock(block=False) as lock:
+                    pass
+            except:
+                assert lock is None
         p.stop()
 
     def test_lock_acquires_and_releases(self):
         p = Process()
         a = p.create_reference('foo')
-        assert a.lock() == True
-        assert a.lock(block=False) == False
-        a.release()
-        assert a.lock() == True
+        with a.lock():
+            try:
+                lock = None
+                with a.lock(block=False) as lock:
+                    pass
+            except:
+                assert lock is None
+
+        with a.lock():
+            pass
+
         p.stop()
+
 
     def test_refresh_session_sets_time_initially(self):
         p = Process()
