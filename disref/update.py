@@ -50,8 +50,8 @@ class Update(object):
         self.doc = doc
         self.collection = collection
         self.database = database
-        self.ref = Reference(process=process, resource=self.resource_id, block=block)
         self.__process = process
+        self.__process.create_reference(resource=self.resource_id, block=block)
 
     def end_session(self, block=True):
         """
@@ -60,17 +60,9 @@ class Update(object):
         used to write to redis or your database backend as efficiently as
         possible.
         """
-        try:
-            locked = False
-            if self.ref.lock(block=block):
-                locked = True
-                if not self.ref.dereference(self.__execute):
-                    self.__cache()
-            else: 
-                raise Reference.AlreadyLocked("Failed to lock on {0}.") 
-        finally:
-            if locked:
-                self.ref.release()
+        with self.ref.lock(block=block):
+            if not self.ref.dereference(self.__execute):
+                self.__cache()
 
     def __cache(self):
         """
