@@ -107,7 +107,7 @@ lru_cache = LruCache(max_entries=10000)
 
 p = Process()
 for user_update in user_updates:
-    lru_cache.set(user_update.user_id, Update(process=p, doc=**user_update))
+    lru_cache.set(user_update.user_id, UserUpdate(process=p, doc=**user_update))
 
 lru_cache.expire_all()
 p.stop()
