@@ -57,7 +57,6 @@ class Reference(object):
 
         self.resource_key = resource
         self.block = block
-        self.lock_key = "{0}_{1}.lock".format(DISREF_NAMESPACE, resource)
         self.reflist_key = "{0}_{1}.reflist".format(DISREF_NAMESPACE, resource)
         self.times_modified_key = "{0}_{1}.times_modified".format(DISREF_NAMESPACE, resource)
         self.__lock = None
@@ -78,7 +77,7 @@ class Reference(object):
             lock.
         """
 
-        return self.__process.lock(self.lock_key, block)
+        return self.__process.lock(self.resource_key, block)
 
     def refresh_session(self):
         """
@@ -144,6 +143,24 @@ class Reference(object):
         if reflist is None:
             return 0
         return len(json.loads(reflist))
+
+    def remove_failed_process(self, pid):
+        """
+        Removes a particular process id from this reference's 
+        reflist. This method should only be called while the reference is 
+        locked.
+
+        :param pid: A string representing the process id to remove.
+
+        """
+        client = self.__process.client
+        s_reflist = client.get(self.reflist_key)
+        reflist = json.loads(s_reflist)
+
+        if pid in reflist:
+            del reflist[pid]
+            client.set(self.reflist_key, json.dumps(reflist))
+
 
     def remove_failed_processes(self, pids):
         """
