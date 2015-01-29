@@ -409,6 +409,8 @@ class UpdateTest(unittest.TestCase):
         self.assertIs(p, a.process())
         self.assertIs(p.client, a.process().client)
 
+        p.stop()
+
     def test_initializer_updates_ref_count(self):
         p = Process()
         a = UpdateTest.UserUpdate(process=p,  _id='123', database='test', collection='user',
