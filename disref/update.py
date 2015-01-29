@@ -33,7 +33,7 @@ class Update(object):
     from redis.
     """
 
-    def __init__(self, process, _id, database='test', collection='test', spec=None, doc=None, block=True):
+    def __init__(self, process, _id, database='test', collection='test', spec=None, doc=None, init_cache=True, block=True):
         """
         :param Process process: The process object, unique to the node.
         :param str _id: The primary key for the record in the database.
@@ -41,6 +41,9 @@ class Update(object):
         :param dict spec: A specification to use in looking up records to
             update.
         :param dict doc: A dictionary of representing the data to update.
+        :param bool init_cache: Optional. Determines whether the update should
+            cache immediately.  While this will allow for more complete recovery
+            of data in the event of a node failure, it may reduce performance.
         :param bool block: Optional. Whether or not to block when establishing
             locks.
         """
@@ -50,8 +53,11 @@ class Update(object):
         self.doc = doc
         self.collection = collection
         self.database = database
-        self.ref = Reference(process=process, resource=self.resource_id, block=block)
         self.__process = process
+        self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
+
+        if init_cache:
+            self.__cache()
 
     def process(self):
         """ Get underlying process variable
@@ -82,7 +88,7 @@ class Update(object):
         if self.ref.get_times_modified() > 0:
             cached = json.loads(self.__process.client.get(self.resource_id) or "{}")
             self.merge(cached)
-        self.cache() 
+        self.cache()
         self.ref.increment_times_modified()
 
     def __execute(self):

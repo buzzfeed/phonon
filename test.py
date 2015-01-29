@@ -7,6 +7,7 @@ import datetime
 import pytz
 import time
 import logging
+import uuid
 
 from disref.reference import Reference
 from disref.process import Process
@@ -60,7 +61,7 @@ class ProcessTest(unittest.TestCase):
 
     @mock.patch('time.time', side_effect=get_milliseconds_timestamp)
     def test_heartbeat_updates(self, time_time_patched):
-        p = Process(heartbeat_interval=.1)
+        p = Process(heartbeat_interval=.1, recover_failed_processes=False)
 
         current_time = p.client.hget(p.heartbeat_hash_name, p.id)
 
@@ -74,8 +75,8 @@ class ProcessTest(unittest.TestCase):
 
     @mock.patch('time.time', side_effect=get_milliseconds_timestamp)
     def test_multiple_heartbeats_update(self, time_time_patched):
-        p1 = Process(heartbeat_interval=.1)
-        p2 = Process(heartbeat_interval=.1)
+        p1 = Process(heartbeat_interval=.1, recover_failed_processes=False)
+        p2 = Process(heartbeat_interval=.1, recover_failed_processes=False)
 
         current_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
         current_time_2 = p2.client.hget(p2.heartbeat_hash_name, p2.id)
@@ -93,8 +94,8 @@ class ProcessTest(unittest.TestCase):
 
     @mock.patch('time.time', side_effect=get_milliseconds_timestamp)
     def test_stop_cleans_up(self, time_time_patched):
-        p1 = Process(heartbeat_interval=.1)
-        p2 = Process(heartbeat_interval=.1)
+        p1 = Process(heartbeat_interval=.1, recover_failed_processes=False)
+        p2 = Process(heartbeat_interval=.1, recover_failed_processes=False)
 
         current_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
 
@@ -131,7 +132,7 @@ class ProcessTest(unittest.TestCase):
 
         assert lock.block is True
         assert lock2.block is False
-        assert lock.lock_key is "foo"
+        assert lock.lock_key == "foo.lock"
         assert lock.client is p1.client
         assert lock._Lock__process is p1
         assert lock._Lock__lock is None
@@ -142,6 +143,112 @@ class ProcessTest(unittest.TestCase):
 
             self.assertRaises(Process.AlreadyLocked, lock2.__enter__)
 
+        p1.stop()
+
+    def test_remove_from_registry(self):
+        p1 = Process()
+
+        assert len(p1.get_registry()) == 0
+
+        p1.create_reference("test")
+        assert len(p1.get_registry()) == 1
+
+        p1.remove_from_registry("test")
+        assert len(p1.get_registry()) == 0
+
+        p1.stop()
+
+    def test_process_recovery(self):
+        p1 = Process(heartbeat_interval=.1)
+        p2 = Process(heartbeat_interval=.1)
+        p1._Process__heartbeat_timer.cancel()
+        p2._Process__heartbeat_timer.cancel()
+
+        assert len(p1.get_registry()) == 0
+
+        dead_process_registry = p1._Process__get_registry_key("12345")
+        p1.add_to_registry("r1", dead_process_registry)
+        p1.add_to_registry("r2", dead_process_registry)
+        p1.client.hset(p1.heartbeat_hash_name, "12345", int(int(time.time()) - 6 * p1.heartbeat_interval))
+
+        p1._Process__recover_failed_processes()
+
+        assert len(p1.get_registry()) == 2
+        assert "12345" not in p1.client.hgetall(p1.heartbeat_hash_name)
+
+        ref = p1.create_reference("r1")
+        ref_list = json.loads(p1.client.get(ref.reflist_key))
+        assert "12345" not in ref_list
+        assert p1.id in ref_list
+
+        ref = p1.create_reference("r2")
+        ref_list = json.loads(p1.client.get(ref.reflist_key))
+        assert "12345" not in ref_list
+        assert p1.id in ref_list
+
+        p1.stop()
+
+
+    def test_process_self_recovery(self):
+        p1 = Process(heartbeat_interval=.1)
+
+        p1.create_reference("test")
+        p1._Process__heartbeat_timer.cancel()
+
+        original_id = p1.id
+        p1.client.hset(p1.heartbeat_hash_name, original_id, int(int(time.time()) - 6 * p1.heartbeat_interval))
+
+        p1._Process__recover_failed_processes()
+
+        assert p1.id != original_id
+        assert len(p1.get_registry()) == 0
+
+        p1._Process__update_heartbeat()
+        p1._Process__heartbeat_timer.cancel()
+
+        assert len(p1.get_registry()) == 1
+
+        p1.stop()
+
+
+    def test_no_active_process(self):
+        p1 = Process(heartbeat_interval=.1)
+        ref = p1.create_reference("test")
+        p1._Process__heartbeat_timer.cancel()
+        original_id = p1.id
+        p1.client.hset(p1.heartbeat_hash_name, p1.id, int(int(time.time()) - 6 * p1.heartbeat_interval))
+
+        p1.id = unicode(uuid.uuid4())
+        p1._Process__recover_failed_processes()
+
+        assert original_id in p1.client.hgetall(p1.heartbeat_hash_name)
+
+        # Proces comes back alive
+        p1.id = original_id
+        p1._Process__recover_failed_processes()
+        p1._Process__update_heartbeat()
+
+        assert original_id not in p1.client.hgetall(p1.heartbeat_hash_name)
+
+        p1.stop()
+
+    def test_failed_process_locked(self):
+
+        p1 = Process(heartbeat_interval=.1)
+        Process.BLOCKING_TIMEOUT = 1
+        p1._Process__heartbeat_timer.cancel()
+
+        assert len(p1.get_registry()) == 0
+
+        dead_process_registry = p1._Process__get_registry_key("12345")
+        p1.add_to_registry("r1", dead_process_registry)
+        p1.add_to_registry("r2", dead_process_registry)
+        p1.client.hset(p1.heartbeat_hash_name, "12345", int(int(time.time()) - 6 * p1.heartbeat_interval))
+
+        with p1.lock(p1._Process__get_registry_key("12345")):
+            p1._Process__recover_failed_processes()
+
+        Process.BLOCKING_TIMEOUT = 500
         p1.stop()
 
 
@@ -414,7 +521,7 @@ class UpdateTest(unittest.TestCase):
     def test_initializer_updates_ref_count(self):
         p = Process()
         a = UpdateTest.UserUpdate(process=p,  _id='123', database='test', collection='user',
-                spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.})
+                spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
 
         client = a._Update__process.client
         reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
@@ -426,7 +533,7 @@ class UpdateTest(unittest.TestCase):
     def test_cache_caches(self):
         p = Process()
         a = UpdateTest.UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
         a.cache()
         client = a._Update__process.client
         cached = json.loads(client.get(a.resource_id) or "{}")
@@ -437,10 +544,10 @@ class UpdateTest(unittest.TestCase):
 
         client.flushall()
         b = UpdateTest.UserUpdate(process=p, _id='456', database='test', collection='user',
-                spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.})
+                spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
         p2 = Process()
         c = UpdateTest.UserUpdate(process=p2, _id='456', database='test', collection='user',
-                spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.})
+                spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
 
         client = a._Update__process.client
         assert client.get(b.resource_id) is None, client.get(b.resource_id)
@@ -488,6 +595,50 @@ class UpdateTest(unittest.TestCase):
 
         p.stop()
         p2.stop()
+
+    def test_data_is_recovered(self):
+        p = Process()
+        client = p.client
+
+        client.flushall()
+
+        a = UpdateTest.UserUpdate(process=p, _id='12345', database='test', collection='user',
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+
+        p._Process__heartbeat_timer.cancel()
+
+        assert len(p.get_registry()) == 1
+
+        cached = json.loads(client.get(a.resource_id) or "{}")
+
+        assert cached == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
+            u'spec': {u'_id': 12345},
+            u'collection': u'user', 
+            u'database': u'test'}
+
+        p.client.hset(p.heartbeat_hash_name, p.id, int(time.time()) - 6*p.heartbeat_interval)
+
+        p.id = unicode(uuid.uuid4())
+        p.registry_key = p._Process__get_registry_key(p.id)
+
+        assert len(p.get_registry()) == 0
+
+        p._Process__update_heartbeat()
+        p._Process__heartbeat_timer.cancel()
+
+        assert len(p.get_registry()) == 1
+
+        a = UpdateTest.UserUpdate(process=p, _id='12345', database='test', collection='user',
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+
+        cached = json.loads(client.get(a.resource_id) or "{}")
+
+        assert cached == {u'doc': {u'a': 2.0, u'c': 6.0, u'b': 4.0},
+            u'spec': {u'_id': 12345},
+            u'collection': u'user', 
+            u'database': u'test'}
+
+        p.stop()
 
     def test_end_session_raises_when_deadlocked(self):
         pass
@@ -573,7 +724,6 @@ class LruCacheTest(unittest.TestCase):
         self.cache.expire('a')
         assert self.cache.size() == 1
         a.assert_end_session_called()
-
 
     def test_expire_all_expires_all(self):
         updates = [self.get_update('a'),
