@@ -402,6 +402,13 @@ class UpdateTest(unittest.TestCase):
             client = self._Update__process.client
             client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
+    def test_process(self):
+        p = Process()
+        a = self.UserUpdate(process=p,  _id='123', database='test', collection='user',
+                spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.})
+        self.assertIs(p, a.process())
+        self.assertIs(p.client, a.process().client)
+
     def test_initializer_updates_ref_count(self):
         p = Process()
         a = UpdateTest.UserUpdate(process=p,  _id='123', database='test', collection='user',
