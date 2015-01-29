@@ -53,6 +53,14 @@ class Update(object):
         self.ref = Reference(process=process, resource=self.resource_id, block=block)
         self.__process = process
 
+    def process(self):
+        """ Get underlying process variable
+
+        :rtype: :class:`disref.process.Process` class
+        :returns: Process variable
+        """
+        return self.__process
+
     def end_session(self, block=True):
         """
         Indicate to this update it's session has ended on the local machine.
