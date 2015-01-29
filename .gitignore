@@ -4,3 +4,7 @@ disref.egg-info/
 dist
 redis-stable
 redis-stable.tar.gz
+*.swp
+dump.rdb
+build
+*.egg
