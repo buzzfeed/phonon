@@ -9,7 +9,7 @@ except ImportError:
 
 setup(
     name='phonon',
-    version='0.2',
+    version='0.3',
     packages=find_packages(),
     author='Andrew Kelleher, Matthew Semanyshyn',
     author_email='andrew.kelleher@buzzfeed.com, matthew.semanyshyn@buzzfeed.com',
@@ -22,7 +22,7 @@ setup(
     classifiers=[
         'Intended Audience :: Developers',
         'Intended Audience :: System Administrators',
-        'Development Status :: 2 - Pre-Alpha',
+        'Development Status :: 3 - Alpha', 
     ],
     keywords="distributed reference references aggregation pipeline big data online algorithm"
 )
