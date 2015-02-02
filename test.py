@@ -13,6 +13,9 @@ from phonon.reference import Reference
 from phonon.process import Process
 from phonon.update import Update
 from phonon.cache import LruCache
+from phonon.exceptions import ConfigError
+from phonon.config.node import Node
+from phonon.config.shard import Shard, Shards
 
 logging.disable(logging.CRITICAL)
 
@@ -741,7 +744,7 @@ class LruCacheTest(unittest.TestCase):
         for update in updates:
             update.assert_end_session_called()
 
-    def test_failres_are_kept(self):
+    def test_failures_are_kept(self):
         class FailingUpdate(object):
             def end_session(self):
                 raise Exception("Failed.")
@@ -754,3 +757,148 @@ class LruCacheTest(unittest.TestCase):
             pass
 
         assert self.cache.get_last_failed() is failing
+
+class NodeTest(unittest.TestCase):
+
+    def setUp(self):
+        self.a = Node(hostname="foo", region="bar", status=Node.READY)
+        self.b = Node(hostname="biz", region="baz", port=1234)
+
+    def test_error_raised_without_hostname_or_ip(self):
+        with self.assertRaisesRegexp(ConfigError,
+            "Each node must have a hostname and an ip"):
+            Node(region="foo")
+
+    def test_error_raised_without_port(self):
+        with self.assertRaisesRegexp(ConfigError,
+            "Port number must be an integer"):
+            Node(hostname="foo", port="6379", region="foo")
+
+    def test_error_raised_without_region(self):
+        with self.assertRaisesRegexp(ConfigError,
+                                     "You must specify a region for all nodes."):
+            Node(hostname="foo")
+
+    def test_initializer(self):
+        assert self.a.address == "foo"
+        assert self.a.port == 6379
+        assert self.a.region == "bar"
+        assert self.a.assignments == 0
+        assert self.a.status == Node.READY
+
+        assert self.b.address == "biz"
+        assert self.b.port == 1234
+        assert self.b.region == "baz"
+        assert self.b.assignments == 0
+        assert self.b.status == Node.UNASSIGNED
+
+    def test_mark_as_assigned_increments_and_decrements(self):
+        assert self.a.assignments == 0
+        self.a.mark_as(Node.ASSIGNED)
+        assert self.a.assignments == 1
+        self.a.mark_as(Node.ASSIGNED)
+        self.a.mark_as(Node.ASSIGNED)
+        self.a.mark_as(Node.ASSIGNED)
+        assert self.a.assignments == 4
+        self.a.mark_as(Node.UNASSIGNED)
+        assert self.a.assignments == 3
+        self.a.mark_as(Node.ASSIGNED)
+        self.a.mark_as(Node.ASSIGNED)
+        assert self.a.assignments == 5
+        self.a.mark_as(Node.UNASSIGNED)
+        self.a.mark_as(Node.UNASSIGNED)
+        self.a.mark_as(Node.UNASSIGNED)
+        self.a.mark_as(Node.UNASSIGNED)
+        self.a.mark_as(Node.UNASSIGNED)
+        assert self.a.assignments == 0
+
+    def test_mark_as_assigns_proper_state(self):
+        assert self.a.status is Node.READY
+        self.a.mark_as(Node.UNASSIGNED)
+        self.a.mark_as(Node.UNASSIGNED)
+        assert self.a.status is Node.UNASSIGNED
+        self.a.mark_as(Node.ASSIGNED)
+        self.a.mark_as(Node.ASSIGNED)
+        assert self.a.status is Node.ASSIGNED
+        self.a.mark_as(Node.UNASSIGNED)
+        assert self.a.status is Node.ASSIGNED
+        self.a.mark_as(Node.ASSIGNED)
+        self.a.mark_as(Node.ASSIGNED)
+        assert self.a.status is Node.ASSIGNED
+        self.a.mark_as(Node.UNASSIGNED)
+        assert self.a.status is Node.ASSIGNED
+
+    def test_mark_as_other_states_works(self):
+        assert self.a.status == Node.READY
+        assert self.b.status == Node.UNASSIGNED
+        self.a.mark_as(Node.STANDBY)
+        self.b.mark_as(Node.INITIALIZING)
+        assert self.a.status is Node.STANDBY
+        assert self.b.status is Node.INITIALIZING
+        self.a.mark_as(Node.ASSIGNED)
+        self.b.mark_as(Node.READY)
+        assert self.a.status is Node.ASSIGNED
+        assert self.b.status is Node.READY
+
+class ShardTest(unittest.TestCase):
+
+    def test_add_adds_region_and_node(self):
+        pass
+
+    def test_add_marks_node_as_assigned_once(self):
+        pass
+
+    def test_add_increments_node_assignments(self):
+        pass
+
+    def test_remove_removes_node_and_region(self):
+        pass
+
+    def test_remove_marks_node_as_unassigned_once(self):
+        pass
+
+    def test_remove_decrements_node_assignments(self):
+        pass
+
+    def test_nodes_returns_all_nodes_including_duplicates(self):
+        pass
+
+    def test_has_region_checks_for_the_region(self):
+        pass
+
+class ShardsTest(unittest.TestCase):
+
+    def test_no_number_of_shards_raises(self):
+        pass
+
+    def test_no_nodelist_raises(self):
+        pass
+
+    def test_no_quorum_size_raises(self):
+        pass
+
+    def test_too_few_nodes_raises(self):
+        pass
+
+    def test_several_ignoring_regions_works(self):
+        pass
+
+    def test_quorum_sizes_are_correct(self):
+        pass
+
+    def test_shard_sizes_are_correct(self):
+        pass
+
+    def test_all_nodes_are_assigned(self):
+        pass
+
+    def test_each_shard_contains_two_regions(self):
+        pass
+
+    def test_no_shard_contains_the_same_region_twice(self):
+        pass
+
+    def test_no_shard_contains_the_same_node_twice(self):
+        pass
+
+
