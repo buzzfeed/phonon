@@ -8,7 +8,7 @@ except ImportError:
   from setuptools import setup, find_packages
 
 setup(
-    name='disref',
+    name='phonon',
     version='0.2',
     packages=find_packages(),
     author='Andrew Kelleher, Matthew Semanyshyn',
@@ -18,7 +18,7 @@ setup(
     install_requires=[
         'pytz==2014.10',
     ],
-    url='http://www.github.com/buzzfeed/disref',
+    url='http://www.github.com/buzzfeed/phonon',
     classifiers=[
         'Intended Audience :: Developers',
         'Intended Audience :: System Administrators',

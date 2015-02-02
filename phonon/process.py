@@ -4,8 +4,8 @@ import time
 import threading
 import math
 
-from disref import get_logger, DisRefError, DISREF_NAMESPACE
-from disref.reference import Reference
+from phonon import get_logger, DisRefError, PHONON_NAMESPACE
+from phonon.reference import Reference
 
 logger = get_logger(__name__)
 
@@ -89,7 +89,7 @@ class Process(object):
         self.registry_key = self.__get_registry_key(self.id)
 
         self.heartbeat_interval = heartbeat_interval
-        self.heartbeat_hash_name = "{0}_heartbeat".format(DISREF_NAMESPACE)
+        self.heartbeat_hash_name = "{0}_heartbeat".format(PHONON_NAMESPACE)
         self.__heartbeat_ref = self.create_reference(self.heartbeat_hash_name)
         self.__heartbeat_timer = None
         self.__update_heartbeat()
@@ -179,7 +179,7 @@ class Process(object):
         :returns: The key at which that process' registry is stored in redis
 
         """
-        return "{0}_{1}".format(DISREF_NAMESPACE, pid)
+        return "{0}_{1}".format(PHONON_NAMESPACE, pid)
 
     def __update_heartbeat(self):
         """

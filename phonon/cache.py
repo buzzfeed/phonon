@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from disref import DisRefError
+from phonon import DisRefError
 
 class CacheError(DisRefError):
     pass
@@ -51,9 +51,9 @@ class LruCache(object):
 
         :param mixed key: The key for the element. Best to use a str, unicode,
             or int type.
-        :param disref.update.Update val: The object to store at that location
+        :param phonon.update.Update val: The object to store at that location
             in the cache. The easiest thing to do is implement your object
-            updates as a sub-class of the `disref.update.Update` class.
+            updates as a sub-class of the `phonon.update.Update` class.
 
         :returns: False if the size wasn't incremented, True otherwise.
         """
@@ -81,7 +81,7 @@ class LruCache(object):
 
         :returns: The element in the cache at `key`.
         :raises: KeyError
-        :rtype: disref.update.Update
+        :rtype: phonon.update.Update
         """
         el = self.__cache[key]
         del self.__cache[key]

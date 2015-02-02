@@ -4,7 +4,7 @@ import sys
 
 from dateutil import parser
 
-from disref import get_logger, DISREF_NAMESPACE, LOCAL_TZ
+from phonon import get_logger, PHONON_NAMESPACE, LOCAL_TZ
 
 logger = get_logger(__name__)
 
@@ -57,8 +57,8 @@ class Reference(object):
 
         self.resource_key = resource
         self.block = block
-        self.reflist_key = "{0}_{1}.reflist".format(DISREF_NAMESPACE, resource)
-        self.times_modified_key = "{0}_{1}.times_modified".format(DISREF_NAMESPACE, resource)
+        self.reflist_key = "{0}_{1}.reflist".format(PHONON_NAMESPACE, resource)
+        self.times_modified_key = "{0}_{1}.times_modified".format(PHONON_NAMESPACE, resource)
         self.__lock = None
         self.__process = process
 

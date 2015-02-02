@@ -9,10 +9,10 @@ import time
 import logging
 import uuid
 
-from disref.reference import Reference
-from disref.process import Process
-from disref.update import Update
-from disref.cache import LruCache
+from phonon.reference import Reference
+from phonon.process import Process
+from phonon.update import Update
+from phonon.cache import LruCache
 
 logging.disable(logging.CRITICAL)
 
@@ -53,7 +53,7 @@ class ProcessTest(unittest.TestCase):
         p = Process()
 
         assert p.heartbeat_interval == 10
-        assert p.heartbeat_hash_name == "disref_heartbeat"
+        assert p.heartbeat_hash_name == "phonon_heartbeat"
         assert isinstance(p._Process__heartbeat_ref, Reference)
 
         p.stop()
@@ -265,9 +265,9 @@ class ReferenceTest(unittest.TestCase):
     def test_init_creates_keys(self):
         p = Process()
         a = p.create_reference('foo')
-        assert a.reflist_key == 'disref_foo.reflist'
+        assert a.reflist_key == 'phonon_foo.reflist'
         assert a.resource_key == 'foo'
-        assert a.times_modified_key == 'disref_foo.times_modified'
+        assert a.times_modified_key == 'phonon_foo.times_modified'
         p.stop()
 
     def test_lock_is_non_reentrant(self):

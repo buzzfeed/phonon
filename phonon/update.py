@@ -1,7 +1,7 @@
 import json
 
-from disref import DISREF_NAMESPACE
-from disref.reference import Reference
+from phonon import PHONON_NAMESPACE
+from phonon.reference import Reference
 
 
 class Update(object):
@@ -47,7 +47,7 @@ class Update(object):
         :param bool block: Optional. Whether or not to block when establishing
             locks.
         """
-        self.resource_id = '{0}_Update.{1}.{2}'.format(DISREF_NAMESPACE, collection, _id)
+        self.resource_id = '{0}_Update.{1}.{2}'.format(PHONON_NAMESPACE, collection, _id)
 
         self.spec = spec
         self.doc = doc
@@ -62,7 +62,7 @@ class Update(object):
     def process(self):
         """ Get underlying process variable
 
-        :rtype: :class:`disref.process.Process` class
+        :rtype: :class:`phonon.process.Process` class
         :returns: Process variable
         """
         return self.__process
