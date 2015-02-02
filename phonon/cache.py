@@ -1,8 +1,5 @@
 from collections import OrderedDict
-from phonon import DisRefError
 
-class CacheError(DisRefError):
-    pass
 
 class LruCache(object):
 
@@ -115,7 +112,7 @@ class LruCache(object):
             expired.end_session()
         except Exception, e:
             self.__failed = expired
-            raise e 
+            raise e
 
     def expire(self, key):
         """
@@ -130,8 +127,8 @@ class LruCache(object):
             expired.end_session()
         except Exception, e:
             self.__failed = expired
-            raise e 
-        self.__size -= 1 
+            raise e
+        self.__size -= 1
 
     def expire_all(self):
         """
@@ -140,4 +137,3 @@ class LruCache(object):
         """
         while self.__size > 0:
             self.expire_oldest()
-
