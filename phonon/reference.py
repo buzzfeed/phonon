@@ -1,14 +1,18 @@
 import datetime
 import json
-import sys
 
 from dateutil import parser
 
-from phonon import get_logger, PHONON_NAMESPACE, LOCAL_TZ, TTL
+from phonon.logger import get_logger
+from phonon.client.config import PHONON_NAMESPACE
+from phonon.client.config import LOCAL_TZ
+from phonon.process import TTL
 
 logger = get_logger(__name__)
 
+
 class Reference(object):
+
     """
     Represents a reference to some resource in the network. Handles reference
     counting, dereferencing, locking/ownership, and maintaining whether or not
@@ -104,7 +108,6 @@ class Reference(object):
 
         client.set(self.reflist_key, json.dumps(reflist))
 
-
     def increment_times_modified(self):
         """
         Increments the number of times this resource has been modified by all
@@ -118,7 +121,7 @@ class Reference(object):
         if not rc:
             client.incr(key, 1)
         else:
-            client.pexpire(key, TTL * 1000) # ttl is in ms
+            client.pexpire(key, TTL * 1000)  # ttl is in ms
 
     def get_times_modified(self):
         """
@@ -137,7 +140,7 @@ class Reference(object):
     def count(self):
         """
         This method should only be called while the reference is locked.
-        
+
         :returns: The total number of elements in the reference list.
         :rtype: int
         """
@@ -163,7 +166,6 @@ class Reference(object):
         if pid in reflist:
             del reflist[pid]
             client.set(self.reflist_key, json.dumps(reflist))
-
 
     def remove_failed_processes(self, pids):
         """
@@ -217,7 +219,7 @@ class Reference(object):
             args = tuple()
         if kwargs is None:
             kwargs = {}
-        
+
         client = self.__process.client
         reflist = client.get(self.reflist_key)
 
@@ -230,7 +232,7 @@ class Reference(object):
         pids = self.remove_failed_processes(pids)
         rc = True
         if pids:
-            rc = False # This is not the last process  
+            rc = False  # This is not the last process
 
         try:
             val = json.dumps(pids)
@@ -244,4 +246,3 @@ class Reference(object):
         client.hdel(self.__process.registry_key, self.resource_key)
 
         return rc
-

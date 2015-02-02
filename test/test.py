@@ -3,6 +3,7 @@ import pickle
 import mock
 import json
 import redis
+import random
 from dateutil import parser
 from collections import defaultdict
 import datetime
@@ -10,19 +11,23 @@ import pytz
 import time
 import logging
 import uuid
+import zlib
+from mockredis import mock_strict_redis_client
 
-from phonon import LOCAL_TZ, TTL
+from phonon.client.config import LOCAL_TZ
+from phonon.process import TTL
 from phonon.reference import Reference
 from phonon.process import Process
 from phonon.update import Update
 from phonon.cache import LruCache
 from phonon.exceptions import ConfigError, ArgumentError
-from phonon.config.node import Node
-from phonon.config.shard import Shard, Shards
-from phonon import default_quorum_size
-from phonon import default_shard_size
-from phonon import config_to_nodelist
-from phonon import configure
+from phonon.client.config.node import Node
+from phonon.client.config.shard import Shard, Shards
+from phonon.client.config import default_quorum_size
+from phonon.client.config import default_shard_size
+from phonon.client.config import config_to_nodelist
+from phonon.client.config import configure
+from phonon.client import Client
 
 logging.disable(logging.CRITICAL)
 
@@ -1852,10 +1857,10 @@ class PhononTest(unittest.TestCase):
 
         configure(config)
 
-        from phonon import TOPOLOGY
-        for shard in TOPOLOGY.shards():
+        from phonon.client.config import SHARDS
+        for shard in SHARDS.shards():
             sum(shard.regions.values()) == len(shard.nodes())
-            for node in TOPOLOGY.nodes():
+            for node in SHARDS.nodes():
                 assert node.status is Node.ASSIGNED
             assert len(shard.regions) == 2
             values = shard.regions.values()

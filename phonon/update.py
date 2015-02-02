@@ -1,15 +1,17 @@
 import pickle
 import datetime
 
-from phonon import PHONON_NAMESPACE, LOCAL_TZ, TTL
+from phonon.client.config import PHONON_NAMESPACE, LOCAL_TZ
+from phonon.process import TTL
 
 
 class Update(object):
+
     """
     It's common for a database backend to be a bottleneck when data is
     aggregated for access through an API. This method is intended to be used in
     the implementation of an efficient, distributed write-through cache.
-    
+
     Let's say we are collecting impression events with NSQ, and our application
     implementation is on the consuming side of a PUB/SUB interface. The goal is
     to aggregate impressions per-user such that a user can be queried by ID,
@@ -35,7 +37,7 @@ class Update(object):
 
     def __init__(self, process, _id, database='test', collection='test',
                  spec=None, doc=None, init_cache=False, block=True, hard_session=TTL,
-                 soft_session=.5*TTL):
+                 soft_session=.5 * TTL):
         """
         :param Process process: The process object, unique to the node.
         :param str _id: The primary key for the record in the database.
@@ -158,7 +160,7 @@ class Update(object):
             if pickled:
                 cached = pickle.loads(pickled)
                 self.merge(cached)
-        self.execute() 
+        self.execute()
 
     def __clear(self):
         """
@@ -167,7 +169,6 @@ class Update(object):
         """
         self.doc = {}
         self.__setstate__(self.clear())
-
 
     def cache(self):
         """
@@ -228,5 +229,3 @@ class Update(object):
         """
         raise NotImplemented("You must define a merge method that merges it's\
             argument with this object.")
-
-

@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 def expire_updates(cache, update_queue):
     import Queue
-    from phonon import get_logger
+    from phonon.logger import get_logger
     logger = get_logger('phonon.cache.expire_updates(daemon)')
     while True:
         try:
