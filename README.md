@@ -9,13 +9,13 @@ python setup.py install
 Or you can use git+ssh:
 
 ```
-pip install git+ssh://git@github.com/buzzfeed/disref.git 
+pip install git+ssh://git@github.com/buzzfeed/phonon.git 
 ```
 
 But you can also use pip if you clone...
 
 ```
-git clone git@github.com:buzzfeed/disref.git ./disref; cd disref; pip install .
+git clone git@github.com:buzzfeed/phonon.git ./phonon; cd phonon; pip install .
 ```
 
 # Run the tests
@@ -40,8 +40,8 @@ The building blocks for this approach to concurrency is the `Reference` object. 
 Here's an example:
 
 ```python
-from disref.reference import Reference
-from disref.process import Process
+from phonon.reference import Reference
+from phonon.process import Process
 
 p1 = Process()
 address_lookup_service = p1.create_reference(resource='me')
@@ -90,8 +90,8 @@ Whoever is last to update the record in the cache will know since `count()` will
 You can see the above example is pretty redundant in this case. It's much more useful to make use of a passive design, subscribing to incoming messages, and using sessions to decide when to write. That is what the `Update` class is intended to do. I'll just write a for loop to simulate incoming messages.
 
 ```python
-from disref.update import Update
-from disref.cache import LruCache
+from phonon.update import Update
+from phonon.cache import LruCache
 
 class UserUpdate(Update):
     def cache(self):
