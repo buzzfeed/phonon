@@ -4,7 +4,9 @@ import sys
 
 from dateutil import parser
 
-from phonon import get_logger, PHONON_NAMESPACE, LOCAL_TZ, TTL
+from phonon.logger import get_logger
+from phonon.client.config import PHONON_NAMESPACE
+from phonon.client.config import LOCAL_TZ
 
 logger = get_logger(__name__)
 

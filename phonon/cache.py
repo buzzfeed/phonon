@@ -3,10 +3,10 @@ import threading
 import Queue
 import time
 
-from phonon import get_logger
-
 from phonon.exceptions import PhononError
 from phonon.exceptions import CacheError
+
+from phonon import get_logger
 
 logger = get_logger(__name__)
 

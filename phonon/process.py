@@ -4,7 +4,9 @@ import time
 import threading
 import math
 
-from phonon import get_logger, PHONON_NAMESPACE, TTL
+from phonon.logger import get_logger
+from phonon import PHONON_NAMESPACE, TTL
+from phonon.client.config import PHONON_NAMESPACE
 from phonon.exceptions import PhononError
 from phonon.reference import Reference
 

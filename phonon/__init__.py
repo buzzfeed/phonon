@@ -1,41 +1,31 @@
 import pytz
 import math
 import logging
+import redis
+import socket
+import socket.error
+import time
 import sys
+
 from collections import defaultdict
+from operator import itemgetter
 
-from phonon.exceptions import ConfigError, ArgumentError
+from redis.exceptions import ConnectionError, TimeoutError,
+from phonon.exceptions import ConfigError, ArgumentError, EmptyResult, NoMajority
 
+from phonon.router import Router
 from phonon.config.node import Node
 from phonon.config.shard import Shards, Shard
+
+from phonon.logger import get_logger
 
 LOCAL_TZ = pytz.utc
 PHONON_NAMESPACE = "phonon"
 TTL = 30 * 60 
 SYSLOG_LEVEL = logging.WARNING
-TOPOLOGY = None
+SHARDS = None
 
-def get_logger(name, log_level=SYSLOG_LEVEL):
-    """
-    Sets up a logger to syslog at a given log level with the standard log format.
-
-    :param str name: The name for the logger
-    :param int log_level: Should be one of logging.INFO, logging.WARNING, etc.
-
-    :returns: A logger implementing warning, error, info, etc.
-    :rtype: logging.Logger
-    """
-    l = logging.getLogger(name)
-
-    formatter = logging.Formatter(fmt='PHONON %(levelname)s - ( %(pathname)s ):%(funcName)s:L%(lineno)d %(message)s')
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(formatter)
-
-    l.addHandler(handler)
-    l.propagate = True
-    l.setLevel(log_level)
-
-    return l
+logger = get_logger(__name__)
 
 def default_quorum_size(shard_size=None):
     """
@@ -95,11 +85,112 @@ def configure(config, quorum_size=None, shard_size=None, shards=100, log_level=l
     :param int log_level:
     """
     global SYSLOG_LEVEL
-    global TOPOLOGY
+    global SHARDS
     SYSLOG_LEVEL = log_level
     shard_size = shard_size or default_shard_size(config)
     quorum_size = quorum_size or default_quorum_size(shard_size)
-    TOPOLOGY = Shards(nodelist=config_to_nodelist(config),
+    SHARDS = Shards(nodelist=config_to_nodelist(config),
                       shards=shards,
                       quorum_size=quorum_size,
                       shard_size=shard_size)
+
+class Client(object):
+    """
+    The client provides an abstraction over the normal redis-py StrictRedis client. It implements the router to handle writing to shards for you.
+
+    The major difference from this client and Redis or StrictRedis is this client will return a list of return values, one for each
+    node in the shard the request was routed to.
+    """
+    WRITES = set(['append', 'pexpireat', 'pfadd', 'bgrewriteaof', 'bgsave', 'pfmerge', 'bitop', 'psetex', 'blpop', 'brpop', 'brpoplpush', 'publish', 'client_pause', 'rename', 'client_setname', 'renamenx', 'restore', 'rpop', 'rpoplpush', 'rpush', 'rpushx', 'config_rewrite', 'sadd', 'config_set', 'save', 'config_resetstat', 'script_flush', 'debug_segfault', 'script_kill', 'decr', 'script_load', 'decrby', 'sdiff', 'del', 'sdiffstore', 'discard', 'select', 'set', 'setbit', 'eval', 'setex', 'evalsha', 'setnx', 'exec', 'setrange', 'shutdown', 'expire', 'sinter', 'expireat', 'sinterstore', 'flushall', 'flushdb', 'slaveof', 'slowlog', 'smove', 'getset', 'sort', 'hdel', 'spop', 'srem', 'hincrby', 'hincrbyfloat', 'sunion', 'sunionstore', 'sync', 'hmset', 'hset', 'hsetnx', 'unwatch', 'incr', 'watch', 'incrby', 'zadd', 'incrbyfloat', 'zincrby', 'zinterstore', 'linsert', 'lpop', 'lpush', 'zrem', 'lrem', 'zremrangebylex', 'lset', 'zremrangebyrank', 'ltrim', 'zremrangebyscore', 'monitor', 'move', 'mset', 'zunionscore', 'msetnx', 'multi', 'persist', 'pexpire'])
+    READS = set(['auth', 'pfcount', 'bitcount', 'ping', 'bitpos', 'psubscribe', 'pubsub', 'pttl', 'client_list', 'quit', 'client_getname', 'randomkey', 'cluster_slots', 'command', 'role', 'command_count', 'command_getkeys', 'command_info', 'config_get', 'scard', 'dbsize', 'script_exists', 'debug_object', 'dump', 'echo', 'exists', 'sismember', 'get', 'getbit', 'smembers', 'getrange', 'hexists', 'srandmember', 'hget', 'hgetall', 'strlen', 'subscribe', 'hkeys', 'hlen', 'hmget', 'time', 'ttl', 'type', 'unsubscribe', 'hvals', 'zcard', 'info', 'zcount', 'keys', 'lastsave', 'lindex', 'zlexcount', 'zrange', 'llen', 'zrangebylex', 'zrevrangebylex', 'zrangebyscore', 'lpushx', 'zrank', 'lrange', 'mget', 'migrate', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', 'scan', 'sscan', 'object', 'hscan', 'zscan'])
+    MAX_CONNECTION_RETRIES = 10
+    MAX_OPERATION_RETRIES = 5
+    CONNECTION_INITIAL_WAIT = 0.5 # Seconds
+
+    def __init__(self):
+        global SHARDS
+        self.__router = Router(SHARDS)
+        self.__connections = {}
+
+    def has_connection(self, hostname):
+        return hostname in self.__connections
+
+    def __connect(self, host, port, db):
+        wait_period = self.CONNECTION_INITIAL_WAIT
+        retries = 0
+        while retries < self.MAX_CONNECTION_RETRIES:
+            try:
+                if retries > 0:
+                    time.sleep(wait_period)
+                self.__connections[host] = redis.StrictRedis(host=host, port=port, db=db)
+                break
+            except (ConnectionError, TimeoutError, socket.error), e:
+                logger.warning("Failed to connect to {0}:{1}: {2}".format(host, port, e))
+                retries += 1
+                wait_period *= 2
+
+    def __consensus(self, votes):
+        """
+        Determines the majority vote given a set of votes. Returns the indexes of the votes inconsistent with the majority.
+
+        :raises: :py:class:`phonon.exceptions.NoMajority` if no vote achieves a majority.
+        :raises: :py:class:`phonon.exceptions.EmptyResult` if no votes are found at all.
+        :param list( mixed ) votes: A list of votes for the value of a read. The index of the vote is the node's index on the shard.
+        :returns: The majority vote and a list of indexes for the nodes that returned values differing from the majority.
+        """
+        tally = defaultdict(int)
+        for vote in votes:
+            tally[vote] += 1
+        ordered = sorted(tally.items(), key=itemgetter(1))
+        if ordered:
+            max_val = ordered[:-1][1]
+            if max_val / sum(tally.values()) > 0.5:
+                majority = ordered[:-1][0]
+                if majority is None:
+                    raise NoMajority("Majority was None")
+                inconsistencies = [i for i, v in enumerate(votes) if v != majority]
+                return majority, inconsistencies
+            raise NoMajority("No majority found on shard for key")
+        raise EmptyResult("No result at all from the shard.")
+
+    def __correct_inconsistent(self, nodes, key, correct_value):
+        # TODO: Add expiration based on max expiry of existing records.
+        for node in nodes:
+            if node.address not in self.__connections:
+                self.__connect(node.address, node.port, 0)
+            self.__connections[node.address].set(key, correct_value)
+
+    def __getattr__(self, item):
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while retries < self.MAX_OPERATION_RETRIES:
+                try:
+                    key = args[0] if args else kwargs.get('key')
+                    nodes = self.__router.route(key)
+                    rvalues = []
+                    for node in nodes:
+                        try:
+                            if node.address not in self.__connections:
+                                self.__connect(node.address, node.port, 0)
+                            rvalues.append(getattr(self.__connections[node.address], item)(*args, **kwargs))
+                        except Exception, e:
+                            rvalues.append(None)
+
+                    majority, inconsistencies = self.__consensus(rvalues)
+                    if item in self.READS and inconsistencies:
+                        self.__correct_inconsistent(inconsistencies, key, majority)
+                    elif inconsistencies:
+                        if majority: # Majority success
+                            # TODO: Handle this case.
+                        else: # Majority failure
+                            # TODO: Handle this case.
+
+
+                    return majority
+                except (NoMajority, EmptyResult), e:
+                    logger.warning("No nodes reachable or conflicts encountered during read operation. Attempting to fix inconsistencies: {0}".format(e))
+                    retries += 1
+
+        return wrapper
+
+

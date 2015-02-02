@@ -3,6 +3,7 @@ import pickle
 import mock
 import json
 import redis
+import random
 from dateutil import parser
 from collections import defaultdict
 import datetime
@@ -10,6 +11,8 @@ import pytz
 import time
 import logging
 import uuid
+import zlib
+from mockredis import mock_strict_redis_client
 
 from phonon import LOCAL_TZ, TTL
 from phonon.reference import Reference
@@ -17,12 +20,13 @@ from phonon.process import Process
 from phonon.update import Update
 from phonon.cache import LruCache
 from phonon.exceptions import ConfigError, ArgumentError
-from phonon.config.node import Node
-from phonon.config.shard import Shard, Shards
-from phonon import default_quorum_size
-from phonon import default_shard_size
-from phonon import config_to_nodelist
-from phonon import configure
+from phonon.client.config.node import Node
+from phonon.client.config.shard import Shard, Shards
+from phonon.client.config import default_quorum_size
+from phonon.client.config import default_shard_size
+from phonon.client.config import config_to_nodelist
+from phonon.client.config import configure
+from phonon.client import Client
 
 logging.disable(logging.CRITICAL)
 
@@ -1852,13 +1856,68 @@ class PhononTest(unittest.TestCase):
 
         configure(config)
 
-        from phonon import TOPOLOGY
-        for shard in TOPOLOGY.shards():
+        from phonon.client.config import SHARDS
+        for shard in SHARDS.shards():
             sum(shard.regions.values()) == len(shard.nodes())
-            for node in TOPOLOGY.nodes():
+            for node in SHARDS.nodes():
                 assert node.status is Node.ASSIGNED
             assert len(shard.regions) == 2
             values = shard.regions.values()
             target = values[0]
             for value in values:
                 assert value == target, value
+
+class ClientTest(unittest.TestCase):
+   
+    def setUp(self):
+        config = defaultdict(list)
+        alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        for i in alphabet:
+            region = i
+            for j in alphabet:
+                hostname = "{0}{1}".format(i, j)
+                config[region].append(hostname)
+        configure(config)
+        from phonon.client.config import SHARDS
+        self.shards = SHARDS
+
+    @mock.patch('redis.StrictRedis', mock_strict_redis_client)
+    def test_client_routes_to_all_nodes_in_shard(self):
+        key = ''
+        while zlib.crc32(key) % len(self.shards.shards()) != 0:
+            key = str(random.random())
+
+        shard = self.shards.shards()[0]
+        nodes = shard.nodes()
+
+        client = Client()
+        rval = client.set(key, 'foo')
+
+        assert len(rval) == sum(rval)
+        assert sum(rval) == len(nodes)
+        for node in nodes:
+            assert client.has_connection(node.address)
+
+        rval = client.get(key)
+        assert len(rval) == len(nodes)
+        for val in rval:
+            assert val == 'foo'
+
+        while zlib.crc32(key) % len(self.shards.shards()) != 5:
+            key = str(random.random())
+
+        shard = self.shards.shards()[5]
+        nodes = shard.nodes()
+
+        rval = client.set(key, 'foo')
+
+        assert len(rval) == sum(rval)
+        assert sum(rval) == len(nodes)
+        for node in nodes:
+            assert client.has_connection(node.address)
+
+        rval = client.get(key)
+        assert len(rval) == len(nodes)
+        for val in rval:
+            assert val == 'foo'
+

@@ -1,7 +1,7 @@
 import random
 from collections import defaultdict
-from phonon.exceptions import ConfigError, ArgumentError
-from phonon.config.node import Node
+from phonon.exceptions import ArgumentError
+from phonon.client.config.node import Node
 
 
 class Shard(object):
@@ -105,6 +105,12 @@ class Shards(object):
     def shards(self):
         return self.__shards
 
+    def __len__(self):
+        return len(self.__shards)
+
+    def __getitem__(self, item):
+        return self.__shards[item]
+
     def nodes(self):
         return {node for region, nodes in self.__nodelist.items() for node in nodes}
 
@@ -164,3 +170,4 @@ class Shards(object):
                     stats['assigned'] += 1
 
         return stats
+
