@@ -842,8 +842,14 @@ class NodeTest(unittest.TestCase):
 
 class ShardTest(unittest.TestCase):
 
+    def setUp(self):
+        self.s = Shard(0)
+        self.a = Node(hostname="foo", region="bar", status=Node.READY)
+        self.b = Node(hostname="biz", region="baz", port=1234)
+
     def test_add_adds_region_and_node(self):
-        pass
+        self.s.add(self.a)
+        self.s.add(self.b)
 
     def test_add_marks_node_as_assigned_once(self):
         pass

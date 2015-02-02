@@ -1,5 +1,5 @@
 import random
-
+from collections import defaultdict
 from phonon.exceptions import ConfigError
 from phonon.config.node import Node
 
@@ -9,18 +9,21 @@ class Shard(object):
     def __init__(self, name):
         self.name = name
         self.nodes = {}
-        self.regions = set([])
+        self.regions = defaultdict(int)
 
     def add(self, node):
         """
         Assign a node to this shard.
         """
         self.nodes[node.address] = node
-        self.regions.add(node.region)
+        self.regions[node.region] += 1
         node.mark_as(Node.ASSIGNED)
 
     def remove(self, node):
         del self.nodes[node.address]
+        self.regions[node.region] -= 1
+        if self.regions[node.region] <= 0:
+            del self.regions[node.region]
         node.mark_as(Node.UNASSIGNED)
 
     def nodes(self):
