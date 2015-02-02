@@ -2,14 +2,13 @@ from collections import OrderedDict
 import threading
 import Queue
 import time
-from phonon import DisRefError
+
 from phonon import get_logger
 
+from phonon.exceptions import PhononError
+from phonon.exceptions import CacheError
+
 logger = get_logger(__name__)
-
-
-class CacheError(DisRefError):
-    pass
 
 
 def expire_updates(cache, update_queue):
@@ -105,6 +104,7 @@ class LruCache(object):
                 return None
 
             del self.__cache[key]
+            update.merge(val)
             self.__cache[key] = update
             return False
 

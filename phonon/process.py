@@ -4,7 +4,12 @@ import time
 import threading
 import math
 
+<<<<<<< HEAD
 from phonon import get_logger, DisRefError, PHONON_NAMESPACE, TTL
+=======
+from phonon import get_logger, PHONON_NAMESPACE
+from phonon.exceptions import PhononError
+>>>>>>> 65f16db... Added Node, Shard, Shards, phonon.configure, phonon.config_to_nodelist,
 from phonon.reference import Reference
 
 logger = get_logger(__name__)
@@ -53,7 +58,7 @@ class Process(object):
         def __exit__(self, type, value, traceback):
             self.__lock.__exit__(type, value, traceback)
 
-    class AlreadyLocked(DisRefError):
+    class AlreadyLocked(PhononError):
         pass
 
     def __init__(self, process_ttl=int(0.5*TTL), host='localhost', port=6379, db=1, heartbeat_interval=10, recover_failed_processes=True):
