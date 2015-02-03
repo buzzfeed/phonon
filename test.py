@@ -769,6 +769,10 @@ class NodeTest(unittest.TestCase):
         self.a = Node(hostname="foo", region="bar", status=Node.READY)
         self.b = Node(hostname="biz", region="baz", port=1234)
 
+    def test_error_raised_when_marked_as_none(self):
+        with self.assertRaisesRegexp(ArgumentError, "You must pass a status"):
+            self.a.mark_as()
+
     def test_error_raised_without_hostname_or_ip(self):
         with self.assertRaisesRegexp(ConfigError,
             "Each node must have a hostname and an ip"):
@@ -852,6 +856,11 @@ class ShardTest(unittest.TestCase):
         self.s2 = Shard(1)
         self.a = Node(hostname="foo", region="bar", status=Node.READY)
         self.b = Node(hostname="biz", region="baz", port=1234)
+
+    def test_argument_error_if_adding_node_twice(self):
+        with self.assertRaisesRegexp(ArgumentError, "A node can only be added to a shard once."):
+            self.s.add(self.a)
+            self.s.add(self.a)
 
     def test_add_adds_region_and_node(self):
         assert "bar" not in self.s.regions
@@ -1069,3 +1078,65 @@ class ShardsTest(unittest.TestCase):
         for shard in shards.shards():
             sum(shard.regions.values()) == len(shard.nodes())
 
+    def test_empty(self):
+        s = Shards(nodelist={"a": [Node(hostname="b", region="a"), Node(hostname="c", region="a")],
+                         "d": [Node(hostname="e", region="d"), Node(hostname="f", region="d")]},
+               shards=100, quorum_size=2, shard_size=2)
+        s.submit()
+        s.conform()
+        s.add_node("a")
+
+    def test_stats_increments(self):
+        b = Node(hostname="b", region="a")
+        c = Node(hostname="c", region="a")
+        e = Node(hostname="e", region="d")
+        f = Node(hostname="f", region="d")
+        s = Shards(nodelist={"a": [b, c],
+                             "d": [e, f]},
+                   shards=100, quorum_size=2, shard_size=2)
+        b.status = Node.READY
+        c.status = Node.STANDBY
+        e.status = Node.UNASSIGNED
+        f.status = Node.INITIALIZING
+
+        assert s.stats().get('ready') == 1
+        assert s.stats().get('standby') == 1
+        assert s.stats().get('unassigned') == 1
+        assert s.stats().get('initializing') == 1
+
+class PhononTest(unittest.TestCase):
+
+    def test_default_quorum_size_raises(self):
+        with self.assertRaisesRegexp(ArgumentError, "Shard size is required"):
+            default_quorum_size()
+        with self.assertRaisesRegexp(ArgumentError, "Shard size is required"):
+            default_quorum_size(0)
+
+    def test_default_quorum_size(self):
+        assert default_quorum_size(2) == 2
+        assert default_quorum_size(3) == 2
+        assert default_quorum_size(4) == 3
+        assert default_quorum_size(5) == 3
+        assert default_quorum_size(6) == 4
+
+    def test_configure(self):
+        config = defaultdict(list)
+        alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        for i in alphabet:
+            region = i
+            for j in alphabet:
+                hostname = "{0}{1}".format(i, j)
+                config[region].append(hostname)
+
+        configure(config)
+
+        from phonon import TOPOLOGY
+        for shard in TOPOLOGY.shards():
+            sum(shard.regions.values()) == len(shard.nodes())
+            for node in TOPOLOGY.nodes():
+                assert node.status is Node.ASSIGNED
+            assert len(shard.regions) == 2
+            values = shard.regions.values()
+            target = values[0]
+            for value in values:
+                assert value == target, value

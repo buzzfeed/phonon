@@ -45,7 +45,7 @@ def default_quorum_size(shard_size=None):
     :rtype: int
     :returns: The minimum viable quorum size.
     """
-    if not shard_size:
+    if not shard_size or shard_size < 2:
         raise ArgumentError("Shard size is required")
     quorum_size = int(math.ceil(float(shard_size) / 2.))
     if shard_size % quorum_size == 0:
