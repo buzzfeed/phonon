@@ -1,6 +1,6 @@
 import random
 from collections import defaultdict
-from phonon.exceptions import ConfigError
+from phonon.exceptions import ConfigError, ArgumentError
 from phonon.config.node import Node
 
 
@@ -8,62 +8,69 @@ class Shard(object):
 
     def __init__(self, name):
         self.name = name
-        self.nodes = {}
+        self.__nodes = set([])
         self.regions = defaultdict(int)
 
     def add(self, node):
         """
         Assign a node to this shard.
         """
-        self.nodes[node.address] = node
+        if node in self.__nodes:
+            raise ArgumentError("A node can only be added to a shard once.")
+
+        self.__nodes.add(node)
         self.regions[node.region] += 1
         node.mark_as(Node.ASSIGNED)
 
     def remove(self, node):
-        del self.nodes[node.address]
+        self.__nodes.remove(node)
         self.regions[node.region] -= 1
         if self.regions[node.region] <= 0:
             del self.regions[node.region]
         node.mark_as(Node.UNASSIGNED)
 
     def nodes(self):
-        return [node for nodes in self.nodes.values() for node in nodes]
+        return self.__nodes
 
     def has_region(self, region_name):
         return region_name in self.regions
 
 class Shards(object):
 
-    def __init__(self, nodelist=None, num=None, quorum_size=None):
-        if not isinstance(num, int):
-            raise ConfigError("You must pass an integer number of shards")
-        if not isinstance(quorum_size):
-            raise ConfigError("Error configuring quorum size.")
+    def __init__(self, nodelist=None, shards=None, quorum_size=None, shard_size=None):
+        if not isinstance(shards, int):
+            raise ArgumentError("You must pass an integer number of shards")
+        if not isinstance(quorum_size, int) or quorum_size < 2:
+            raise ArgumentError("Error configuring quorum size. Must be an integer > 1.")
+        if not nodelist:
+            raise ArgumentError("You must pass a nodelist")
+        if len(nodelist.keys()) < 2:
+            raise ArgumentError("You must specify at least two data centers")
+        for region, nodes in nodelist.items():
+            if len(nodes) < 2:
+                raise ArgumentError("Every region must contain at least two nodes.")
 
-        self.__shards = [Shard(name=n) for n in xrange(num)]
         self.__quorum_size = quorum_size
-        self.__shard_size = (quorum_size - 1) * 2
+        self.__shard_size = shard_size
         self.__nodelist = nodelist
 
-        for shard in self.__shards:
-            a, b = tuple(random.sample(self.__nodelist.keys(), 2)) # Need to enforce all regions are used at least once
-            nodelist = random.sample(self.__nodelist[a], self.__shard_size/2)
-            nodelist += random.sample(self.__nodelist[b], self.__shard_size/2)
-            for node in nodelist:
-                shard.add(node)
-
-        # Make sure all nodes were assigned at least once.
-        unassigned = self.unassigned()
-        while unassigned:
-            for node in unassigned:
-                while node.status is not Node.ASSIGNED:
-                    shard = random.choice(self.__shards)
-                    if shard.has_region(node.region):
-                        to_replace = random.choice(shard.nodes())
-                        if node.region == to_replace.region:
-                            shard.remove(to_replace)
-                            shard.add(node)
+        unassigned = True
+        while unassigned: # Generally shards >> regions or nodes ensuring a good balance
+            self.__shards = [Shard(name=n) for n in xrange(shards)]
+            for shard in self.__shards:
+                a, b = tuple(random.sample(self.__nodelist.keys(), 2))
+                ideal_balance = self.__shard_size/2
+                nodelist = random.sample(self.__nodelist[a], ideal_balance)
+                nodelist += random.sample(self.__nodelist[b], ideal_balance)
+                for node in nodelist:
+                    shard.add(node)
             unassigned = self.unassigned()
+
+    def shards(self):
+        return self.__shards
+
+    def nodes(self):
+        return {node for region, nodes in self.__nodelist.items() for node in nodes}
 
     def unassigned(self):
         unassigned = []

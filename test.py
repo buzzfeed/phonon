@@ -3,6 +3,7 @@ import mock
 import json
 import redis
 from dateutil import parser
+from collections import defaultdict
 import datetime
 import pytz
 import time
@@ -13,9 +14,13 @@ from phonon.reference import Reference
 from phonon.process import Process
 from phonon.update import Update
 from phonon.cache import LruCache
-from phonon.exceptions import ConfigError
+from phonon.exceptions import ConfigError, ArgumentError
 from phonon.config.node import Node
 from phonon.config.shard import Shard, Shards
+from phonon import default_quorum_size
+from phonon import default_shard_size
+from phonon import config_to_nodelist
+from phonon import configure
 
 logging.disable(logging.CRITICAL)
 
@@ -844,67 +849,223 @@ class ShardTest(unittest.TestCase):
 
     def setUp(self):
         self.s = Shard(0)
+        self.s2 = Shard(1)
         self.a = Node(hostname="foo", region="bar", status=Node.READY)
         self.b = Node(hostname="biz", region="baz", port=1234)
 
     def test_add_adds_region_and_node(self):
+        assert "bar" not in self.s.regions
+        assert "baz" not in self.s.regions
+        assert self.a.status is Node.READY
+        assert self.b.status is Node.UNASSIGNED
         self.s.add(self.a)
+        assert self.a.status is Node.ASSIGNED
+        assert "bar" in self.s.regions
+        assert "baz" not in self.s.regions
         self.s.add(self.b)
+        assert self.b.status is Node.ASSIGNED
+        assert "bar" in self.s.regions
+        assert "baz" in self.s.regions
 
     def test_add_marks_node_as_assigned_once(self):
-        pass
+        assert self.b.status is Node.UNASSIGNED
+        self.s.add(self.b)
+        assert self.b.status is Node.ASSIGNED
 
     def test_add_increments_node_assignments(self):
-        pass
+        assert self.b.assignments == 0
+        self.s.add(self.b)
+        assert self.b.assignments == 1
+        self.s2.add(self.b)
+        assert self.b.assignments == 2
 
     def test_remove_removes_node_and_region(self):
-        pass
+        c = Node(hostname='pants', region=self.b.region)
+        self.s.add(self.b)
+        assert self.b.region in self.s.regions
+        assert self.b in self.s.nodes()
+        self.s.remove(self.b)
+        assert self.b.region not in self.s.regions
+        assert self.b not in self.s.nodes()
+        self.s.add(c)
+        self.s.add(self.b)
+        self.s.remove(self.b)
+        assert self.b.region in self.s.regions
+        assert self.b not in self.s.nodes()
 
     def test_remove_marks_node_as_unassigned_once(self):
-        pass
+        self.s.add(self.b)
+        assert self.b.status is Node.ASSIGNED
+        assert self.b.assignments == 1
+        self.s.remove(self.b)
+        assert self.b.status is Node.UNASSIGNED
+        assert self.b.assignments == 0
 
     def test_remove_decrements_node_assignments(self):
-        pass
+        self.s.add(self.b)
+        assert self.b.status is Node.ASSIGNED
+        assert self.b.assignments == 1
+        self.s2.add(self.b)
+        assert self.b.status is Node.ASSIGNED
+        assert self.b.assignments == 2
+        self.s.remove(self.b)
+        assert self.b.assignments == 1
 
-    def test_nodes_returns_all_nodes_including_duplicates(self):
-        pass
+    def test_nodes_returns_all_nodes(self):
+        self.s.add(self.a)
+        self.s.add(self.b)
+        assert self.a in self.s.nodes()
+        assert self.b in self.s.nodes()
 
     def test_has_region_checks_for_the_region(self):
-        pass
+        assert not self.s.has_region("bar")
+        assert not self.s.has_region("baz")
+        self.s.add(self.a)
+        assert self.s.has_region("bar")
+        assert not self.s.has_region("baz")
+        self.s.add(self.b)
+        assert self.s.has_region("bar")
+        assert self.s.has_region("baz")
 
 class ShardsTest(unittest.TestCase):
 
     def test_no_number_of_shards_raises(self):
-        pass
+        with self.assertRaisesRegexp(ArgumentError, "You must pass an integer number of shards"):
+            Shards(shards=None)
 
     def test_no_nodelist_raises(self):
-        pass
+        with self.assertRaisesRegexp(ArgumentError, "You must pass a nodelist"):
+            Shards(nodelist=None, shards=100, quorum_size=2)
 
     def test_no_quorum_size_raises(self):
-        pass
+        with self.assertRaisesRegexp(ArgumentError, "Error configuring quorum size. Must be an integer > 1."):
+            Shards(nodelist={"a": ["b", "c"], "d": ["e", "f"]},
+                   shards=100, quorum_size=None)
+        with self.assertRaisesRegexp(ArgumentError, "Error configuring quorum size. Must be an integer > 1."):
+            Shards(nodelist={"a": ["b", "c"], "d": ["e", "f"]},
+                   shards=100, quorum_size=1)
 
     def test_too_few_nodes_raises(self):
-        pass
+        """Should raise an exception when too few nodes or too few data centers are specified."""
+        with self.assertRaisesRegexp(ArgumentError, "You must specify at least two data centers"):
+            Shards(nodelist={"a": ["b", "c"]}, shards=100, quorum_size=2)
+        with self.assertRaisesRegexp(ArgumentError, "Every region must contain at least two nodes"):
+            Shards(nodelist={"a": ["b", "c"], "d": ["e"]}, shards=100, quorum_size=2)
 
     def test_several_ignoring_regions_works(self):
-        pass
+        """Should be able to _say_ there are two regions when all nodes are in just one."""
+        Shards(nodelist={"a": [Node(hostname="b", region="a"), Node(hostname="c", region="a")],
+                         "d": [Node(hostname="e", region="d"), Node(hostname="f", region="d")]},
+               shards=100, quorum_size=2, shard_size=2)
 
     def test_quorum_sizes_are_correct(self):
-        pass
+        config = {"a": ["b", "c", "d"],
+                  "e": ["f", "g", "h"],
+                  "i": ["j", "k"]}
+        shard_size = default_shard_size(config)
+        quorum_size = default_quorum_size(shard_size)
+        shards = Shards(nodelist=config_to_nodelist(config),
+                        shards=100,
+                        quorum_size=quorum_size,
+                        shard_size=shard_size)
+        assert shards.stats().get('quorum_size') == 3
+        assert shards.stats().get('shard_size') == 4
 
-    def test_shard_sizes_are_correct(self):
-        pass
+        config = {"a": ["b", "c"],
+                  "e": ["f", "g"],
+                  "i": ["j", "k"]}
+        shard_size = default_shard_size(config)
+        quorum_size = default_quorum_size(shard_size)
+        shards = Shards(nodelist=config_to_nodelist(config),
+                        shards=100,
+                        quorum_size=quorum_size,
+                        shard_size=shard_size)
+        assert shards.stats().get('quorum_size') == 3
+        assert shards.stats().get('shard_size') == 4
+
+        config = {"a": ["b", "c", "d"],
+                  "e": ["f", "g", "h"],
+                  "i": ["j", "k", "l"]}
+        shard_size = default_shard_size(config)
+        quorum_size = default_quorum_size(shard_size)
+        shards = Shards(nodelist=config_to_nodelist(config),
+                        shards=100,
+                        quorum_size=quorum_size,
+                        shard_size=shard_size)
+        assert shards.stats().get('quorum_size') == 4
+        assert shards.stats().get('shard_size') == 6
 
     def test_all_nodes_are_assigned(self):
-        pass
+        config = defaultdict(list)
+        alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        for i in alphabet:
+            region = i
+            for j in alphabet:
+                hostname = "{0}{1}".format(i, j)
+                config[region].append(hostname)
+        shard_size = default_shard_size(config)
+        quorum_size = default_quorum_size(shard_size)
+        shards = Shards(nodelist=config_to_nodelist(config),
+                        shards=100,
+                        quorum_size=quorum_size,
+                        shard_size=shard_size)
+
+        assert len(shards.nodes()) == 1296
+        for node in shards.nodes():
+            assert node.status is Node.ASSIGNED
 
     def test_each_shard_contains_two_regions(self):
-        pass
+        config = defaultdict(list)
+        alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        for i in alphabet:
+            region = i
+            for j in alphabet:
+                hostname = "{0}{1}".format(i, j)
+                config[region].append(hostname)
+        shard_size = default_shard_size(config)
+        quorum_size = default_quorum_size(shard_size)
+        shards = Shards(nodelist=config_to_nodelist(config),
+                        shards=100,
+                        quorum_size=quorum_size,
+                        shard_size=shard_size)
+        for shard in shards.shards():
+            assert len(shard.regions) == 2
+            values = shard.regions.values()
+            target = values[0]
+            for value in values:
+                assert value == target, value
 
     def test_no_shard_contains_the_same_region_twice(self):
-        pass
+        config = defaultdict(list)
+        alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        for i in alphabet:
+            region = i
+            for j in alphabet:
+                hostname = "{0}{1}".format(i, j)
+                config[region].append(hostname)
+        shard_size = default_shard_size(config)
+        quorum_size = default_quorum_size(shard_size)
+        shards = Shards(nodelist=config_to_nodelist(config),
+                        shards=100,
+                        quorum_size=quorum_size,
+                        shard_size=shard_size)
+        for shard in shards.shards():
+            assert len(shard.regions) == 2
 
     def test_no_shard_contains_the_same_node_twice(self):
-        pass
-
+        config = defaultdict(list)
+        alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        for i in alphabet:
+            region = i
+            for j in alphabet:
+                hostname = "{0}{1}".format(i, j)
+                config[region].append(hostname)
+        shard_size = default_shard_size(config)
+        quorum_size = default_quorum_size(shard_size)
+        shards = Shards(nodelist=config_to_nodelist(config),
+                        shards=100,
+                        quorum_size=quorum_size,
+                        shard_size=shard_size)
+        for shard in shards.shards():
+            sum(shard.regions.values()) == len(shard.nodes())
 
