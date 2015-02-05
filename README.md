@@ -94,8 +94,8 @@ from phonon.update import Update
 from phonon.cache import LruCache
 
 class UserUpdate(Update):
-    def cache(self):
-        # Cache this object to redis. Don't worry about locking, etc, it's handled.
+    def state(self):
+        # Return a dict of only the attributes you set yourself. Didn't set any? Great. Don't override it. 
     def merge(self, other):
         # Merge an instance of this class with another, combining state.
     def execute(self):

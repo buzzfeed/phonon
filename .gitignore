@@ -8,3 +8,5 @@ redis-stable.tar.gz
 dump.rdb
 build
 *.egg
+.idea
+phonon.egg-info/

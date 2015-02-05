@@ -1,4 +1,5 @@
 import json
+import pickle
 
 from phonon import PHONON_NAMESPACE
 from phonon.reference import Reference
@@ -78,6 +79,24 @@ class Update(object):
             if not self.ref.dereference(self.__execute):
                 self.__cache()
 
+    def __getstate__(self):
+        default_state = {
+            'resource_id': self.resource_id,
+            'spec': self.spec,
+            'doc': self.doc,
+            'collection': self.collection,
+            'database': self.database
+        }
+        user_defined_state = self.state()
+
+        default_state.update(user_defined_state)
+
+        return default_state
+
+    def __setstate__(self, state):
+        for k, v in state.items():
+            setattr(self, k, v)
+
     def __cache(self):
         """
         Handles deciding whether or not to get the resource from redis. Also
@@ -86,8 +105,10 @@ class Update(object):
         modified if the cache method executes successfully (does not raise).
         """
         if self.ref.get_times_modified() > 0:
-            cached = json.loads(self.__process.client.get(self.resource_id) or "{}")
-            self.merge(cached)
+            pickled = self.__process.client.get(self.resource_id)
+            if pickled:
+                cached = pickle.loads(pickled)
+                self.merge(cached)
         self.cache()
         self.ref.increment_times_modified()
 
@@ -99,20 +120,26 @@ class Update(object):
         database. Recovering from a failed `execute` is up to you.
         """
         if self.ref.get_times_modified() > 0:
-            cached = json.loads(self.__process.client.get(self.resource_id) or "{}")
-            self.merge(cached)
+            pickled = self.__process.client.get(self.resource_id)
+            if pickled:
+                cached = pickle.loads(pickled)
+                self.merge(cached)
         self.execute() 
 
     def cache(self):
         """
-        You must override this method. This method handles writing the update
-        to redis. The format should be stringified JSON, and some variant of
-        `set` should be used.
+        This method caches the update to redis.
         """
-        raise NotImplemented("You must define a cache method that caches this \
-            record to redis at the key {0}. Locking and such will be handled\
-            for you.") 
-        
+        self.__process.client.set(self.resource_id,
+                                  pickle.dumps(self))
+
+    def state(self):
+        """
+        Return a dictionary of any attributes you manually set on the update. If
+        you don't need it, don't override it.
+        """
+        return {}
+
     def execute(self):
         """
         You must override this method. This method handles writing the update
