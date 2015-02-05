@@ -55,8 +55,9 @@ class Update(object):
         self.database = database
         self.__process = process
         self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
+        self.init_cache = init_cache
 
-        if init_cache:
+        if self.init_cache:
             self.__cache()
 
     def process(self):
@@ -89,7 +90,10 @@ class Update(object):
             cached = json.loads(self.__process.client.get(self.resource_id) or "{}")
             self.merge(cached)
         self.cache()
-        self.ref.increment_times_modified()
+        if not self.init_cache:
+            # If caching on init, we do not increment times_modified to prevent
+            # an update from merging with itself upon execution.
+            self.ref.increment_times_modified()
 
     def __execute(self):
         """
