@@ -1,4 +1,5 @@
 import json
+import pickle
 
 from phonon import PHONON_NAMESPACE
 from phonon.reference import Reference
@@ -86,8 +87,10 @@ class Update(object):
         modified if the cache method executes successfully (does not raise).
         """
         if self.ref.get_times_modified() > 0:
-            cached = json.loads(self.__process.client.get(self.resource_id) or "{}")
-            self.merge(cached)
+            pickled = self.__process.client.get(self.resource_id)
+            if pickled:
+                cached = pickle.loads(pickled)
+                self.merge(cached)
         self.cache()
         self.ref.increment_times_modified()
 
@@ -99,8 +102,10 @@ class Update(object):
         database. Recovering from a failed `execute` is up to you.
         """
         if self.ref.get_times_modified() > 0:
-            cached = json.loads(self.__process.client.get(self.resource_id) or "{}")
-            self.merge(cached)
+            pickled = self.__process.client.get(self.resource_id)
+            if pickled:
+                cached = pickle.loads(pickled)
+                self.merge(cached)
         self.execute() 
 
     def cache(self):
@@ -109,10 +114,9 @@ class Update(object):
         to redis. The format should be stringified JSON, and some variant of
         `set` should be used.
         """
-        raise NotImplemented("You must define a cache method that caches this \
-            record to redis at the key {0}. Locking and such will be handled\
-            for you.") 
-        
+        self.__process.client.set(self.resource_id,
+                                  pickle.dumps(self))
+
     def execute(self):
         """
         You must override this method. This method handles writing the update

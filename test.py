@@ -1,4 +1,5 @@
 import unittest
+import pickle
 import mock
 import json
 import redis
@@ -477,41 +478,44 @@ class ReferenceTest(unittest.TestCase):
 
         p.stop()
         p2.stop()
+    
+class UserUpdate(Update):
+
+    def __setstate__(self, state):
+        for k, v in state.items():
+            setattr(self, k, v)
+
+    def __getstate__(self):
+        return {
+                'doc': self.doc,
+                'spec': self.spec,
+                'collection': self.collection,
+                'database': self.database
+        }
+
+    def merge(self, user_update):
+        for k, v in (user_update.doc or {}).items():
+            if k not in self.doc:
+                self.doc[k] = float(v)
+            else:
+                self.doc[k] += float(v)
+
+    def execute(self):
+        obj = {
+                'doc': self.doc,
+                'spec': self.spec,
+                'collection': self.collection,
+                'database': self.database
+        }
+        client = self._Update__process.client
+        client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
 class UpdateTest(unittest.TestCase):
 
-    class UserUpdate(Update):
-
-        def merge(self, user_update):
-            for k, v in user_update.get('doc', {}).items():
-                if k not in self.doc:
-                    self.doc[k] = float(v)
-                else:
-                    self.doc[k] += float(v)
-
-        def cache(self):
-            obj = {
-                    'doc': self.doc,
-                    'spec': self.spec,
-                    'collection': self.collection,
-                    'database': self.database
-            }
-            client = self._Update__process.client
-            client.set(self.resource_id, json.dumps(obj))
-
-        def execute(self):
-            obj = {
-                    'doc': self.doc,
-                    'spec': self.spec,
-                    'collection': self.collection,
-                    'database': self.database
-            }
-            client = self._Update__process.client
-            client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
     def test_process(self):
         p = Process()
-        a = self.UserUpdate(process=p,  _id='123', database='test', collection='user',
+        a = UserUpdate(process=p,  _id='123', database='test', collection='user',
                 spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.})
         self.assertIs(p, a.process())
         self.assertIs(p.client, a.process().client)
@@ -520,7 +524,7 @@ class UpdateTest(unittest.TestCase):
 
     def test_initializer_updates_ref_count(self):
         p = Process()
-        a = UpdateTest.UserUpdate(process=p,  _id='123', database='test', collection='user',
+        a = UserUpdate(process=p,  _id='123', database='test', collection='user',
                 spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
 
         client = a._Update__process.client
@@ -532,21 +536,21 @@ class UpdateTest(unittest.TestCase):
 
     def test_cache_caches(self):
         p = Process()
-        a = UpdateTest.UserUpdate(process=p, _id='12345', database='test', collection='user',
+        a = UserUpdate(process=p, _id='12345', database='test', collection='user',
                 spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
         a.cache()
         client = a._Update__process.client
-        cached = json.loads(client.get(a.resource_id) or "{}")
-        assert cached == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
+        cached = pickle.loads(client.get(a.resource_id))
+        assert cached.__getstate__() == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
                 u'spec': {u'_id': 12345},
                 u'collection': u'user',
                 u'database': u'test'}
 
         client.flushall()
-        b = UpdateTest.UserUpdate(process=p, _id='456', database='test', collection='user',
+        b = UserUpdate(process=p, _id='456', database='test', collection='user',
                 spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
         p2 = Process()
-        c = UpdateTest.UserUpdate(process=p2, _id='456', database='test', collection='user',
+        c = UserUpdate(process=p2, _id='456', database='test', collection='user',
                 spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
 
         client = a._Update__process.client
@@ -555,12 +559,12 @@ class UpdateTest(unittest.TestCase):
         assert c.ref.count() == 2, c.ref.count()
         b.end_session()
         assert c.ref.count() == 1, c.ref.count()
-        cached = json.loads(client.get(b.resource_id) or "{}") 
+        cached = pickle.loads(client.get(b.resource_id)) 
 
-        observed_doc = cached['doc']
-        observed_spec = cached['spec']
-        observed_coll = cached['collection']
-        observed_db = cached['database']
+        observed_doc = cached.doc
+        observed_spec = cached.spec
+        observed_coll = cached.collection
+        observed_db = cached.database
         
         expected_doc = {u'd': 4.0, u'e': 5.0, u'f': 6.0}
         expected_spec = {u'_id': 456}
@@ -602,16 +606,16 @@ class UpdateTest(unittest.TestCase):
 
         client.flushall()
 
-        a = UpdateTest.UserUpdate(process=p, _id='12345', database='test', collection='user',
+        a = UserUpdate(process=p, _id='12345', database='test', collection='user',
                 spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
 
         p._Process__heartbeat_timer.cancel()
 
         assert len(p.get_registry()) == 1
 
-        cached = json.loads(client.get(a.resource_id) or "{}")
+        cached = pickle.loads(client.get(a.resource_id) or "{}")
 
-        assert cached == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
+        assert cached.__getstate__() == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
             u'spec': {u'_id': 12345},
             u'collection': u'user', 
             u'database': u'test'}
@@ -628,12 +632,12 @@ class UpdateTest(unittest.TestCase):
 
         assert len(p.get_registry()) == 1
 
-        a = UpdateTest.UserUpdate(process=p, _id='12345', database='test', collection='user',
+        a = UserUpdate(process=p, _id='12345', database='test', collection='user',
                 spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
 
-        cached = json.loads(client.get(a.resource_id) or "{}")
+        cached = pickle.loads(client.get(a.resource_id) or "{}")
 
-        assert cached == {u'doc': {u'a': 2.0, u'c': 6.0, u'b': 4.0},
+        assert cached.__getstate__() == {u'doc': {u'a': 2.0, u'c': 6.0, u'b': 4.0},
             u'spec': {u'_id': 12345},
             u'collection': u'user', 
             u'database': u'test'}
