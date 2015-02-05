@@ -57,7 +57,7 @@ class Update(object):
         self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
 
         if init_cache:
-            self.__cache()
+            self.__cache(init_cache=True)
 
     def process(self):
         """ Get underlying process variable
@@ -78,18 +78,24 @@ class Update(object):
             if not self.ref.dereference(self.__execute):
                 self.__cache()
 
-    def __cache(self):
+    def __cache(self, init_cache=False):
         """
         Handles deciding whether or not to get the resource from redis. Also
         implements merging cached records with this one (by implementing your
         `merge` method). Increments the number of times this record was
         modified if the cache method executes successfully (does not raise).
+
+        :param bool init_cache: Whether this cache is happening on the
+            instantiation of the Update object.
         """
         if self.ref.get_times_modified() > 0:
             cached = json.loads(self.__process.client.get(self.resource_id) or "{}")
             self.merge(cached)
         self.cache()
-        self.ref.increment_times_modified()
+        if not init_cache:
+            # If caching on init, we do not increment times_modified to prevent
+            # an update from merging with itself upon execution.
+            self.ref.increment_times_modified()
 
     def __execute(self):
         """
