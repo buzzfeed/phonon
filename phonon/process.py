@@ -235,6 +235,9 @@ class Process(object):
                         for recovering_reference in recovering_references:
                             reference = self.create_reference(recovering_reference)
                             with reference.lock():
+                                # We increment the times modified to ensure that the data recovered
+                                # is pulled from the cache.
+                                reference.increment_times_modified()
                                 reference.remove_failed_process(failed_pid)
 
                         if self.remove_from_registry(recovering_references, failed_process_registry_key) == 0:
