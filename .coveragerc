@@ -1,12 +1,16 @@
 [run]
 branch = True
-source = disref/
+source = phonon/
 include =
-    disref/update.py
-    disref/reference.py
-    disref/process.py
-    disref/__init__.py 
-    disref/cache.py
+    phonon/update.py
+    phonon/reference.py
+    phonon/process.py
+    phonon/exceptions.py
+    phonon/__init__.py 
+    phonon/cache.py
+    phonon/config/__init__.py
+    phonon/config/node.py
+    phonon/config/shard.py
 [report]
 exclude_lines =
     pragma: no cover
