@@ -28,6 +28,40 @@ python setup.py test
 
 # Getting Started
 
+## Configuration
+
+For reliability we require at least 2 nodes in at least 2 separate regions. This means the minimum setup will be 4 nodes.
+
+In your application settings, wherever they may be, just import the phonon namespace. Pass the configuration like:
+
+```python
+import phonon
+
+phonon.configure({
+    "us-east-1": ["redis01.example.com", "redis02.example.com"],
+    "us-west-1": ["redis03.example.com", "redis04.example.com"]
+})
+```
+
+The basic syntax is:
+
+```python
+phonon.configure({
+    "<region label>": ["<hostname1>", "<hostname2>", ...],
+})
+```
+
+Specifying the region allows us to make decisions for better failover in the case of a regional or data center failure. Don't care about those? Then just specify your regions, etc, like this:
+
+```python
+import phonon
+
+phonon.configure({
+    "first_half": ["<all>", "<my>", "<hosts>", "<go>"],
+    "second_half" ["<here>", "<regardless>", "<of>", "<region>"]
+})
+```
+
 ## References
 
 The building blocks for this approach to concurrency is the `Reference` object. You can use `Reference` s for 
