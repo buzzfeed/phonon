@@ -56,8 +56,8 @@ class Update(object):
         self.database = database
         self.__process = process
         self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
-
-        if init_cache:
+        self.init_cache = init_cache
+        if self.init_cache:
             self.__cache()
 
     def process(self):
@@ -112,6 +112,9 @@ class Update(object):
         self.cache()
         self.ref.increment_times_modified()
 
+        if self.init_cache:
+            self.__reset()
+
     def __execute(self):
         """
         Handles deciding whether or not to get the resource from redis. Also
@@ -126,6 +129,15 @@ class Update(object):
                 self.merge(cached)
         self.execute() 
 
+    def __reset(self):
+        """
+        If using failure recovery features (ie init_cache), after caching, data
+        that will be executed to the database will be reset.
+        """
+        self.doc = {}
+        self.__setstate__(self.reset_states())
+
+
     def cache(self):
         """
         This method caches the update to redis.
@@ -137,6 +149,16 @@ class Update(object):
         """
         Return a dictionary of any attributes you manually set on the update. If
         you don't need it, don't override it.
+        """
+        return {}
+
+    def reset_states(self):
+        """
+        If using failure recovery features, after caching, any data which will
+        be executed to the database should be reset to an 'empty' state.
+        Return a dictionary of any attributes you set on the update along with
+        its base state.  If you aren't using any other attributes other than doc
+        to execute or not using the failure functionality, don't override this.
         """
         return {}
 

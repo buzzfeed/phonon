@@ -96,6 +96,8 @@ from phonon.cache import LruCache
 class UserUpdate(Update):
     def state(self):
         # Return a dict of only the attributes you set yourself. Didn't set any? Great. Don't override it. 
+    def reset_states(self):
+        # Return a dict of how to reset any fields you added and will execute on. Didn't set any or not using process recovery? Great. Don't override it. 
     def merge(self, other):
         # Merge an instance of this class with another, combining state.
     def execute(self):
