@@ -34,7 +34,7 @@ class Update(object):
     from redis.
     """
 
-    def __init__(self, process, _id, database='test', collection='test', spec=None, doc=None, init_cache=True, block=True):
+    def __init__(self, process, _id, database='test', collection='test', spec=None, doc=None, init_cache=False, block=True):
         """
         :param Process process: The process object, unique to the node.
         :param str _id: The primary key for the record in the database.

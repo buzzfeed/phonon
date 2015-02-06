@@ -627,7 +627,7 @@ class UpdateTest(unittest.TestCase):
         client.flushall()
 
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         p._Process__heartbeat_timer.cancel()
 
@@ -654,7 +654,7 @@ class UpdateTest(unittest.TestCase):
         assert len(p.get_registry()) == 1
 
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         cached = pickle.loads(client.get(a.resource_id) or "{}")
 
