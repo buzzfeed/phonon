@@ -1,8 +1,7 @@
 from collections import OrderedDict
-from phonon import DisRefError
 
-class CacheError(DisRefError):
-    pass
+from phonon.exceptions import PhononError
+from phonon.exceptions import CacheError
 
 class LruCache(object):
 
