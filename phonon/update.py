@@ -34,7 +34,7 @@ class Update(object):
     from redis.
     """
 
-    def __init__(self, process, _id, database='test', collection='test', spec=None, doc=None, init_cache=True, block=True):
+    def __init__(self, process, _id, database='test', collection='test', spec=None, doc=None, init_cache=False, block=True):
         """
         :param Process process: The process object, unique to the node.
         :param str _id: The primary key for the record in the database.
@@ -56,8 +56,8 @@ class Update(object):
         self.database = database
         self.__process = process
         self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
-
-        if init_cache:
+        self.init_cache = init_cache
+        if self.init_cache:
             self.__cache()
 
     def process(self):
@@ -112,6 +112,9 @@ class Update(object):
         self.cache()
         self.ref.increment_times_modified()
 
+        if self.init_cache:
+            self.__clear()
+
     def __execute(self):
         """
         Handles deciding whether or not to get the resource from redis. Also
@@ -126,6 +129,15 @@ class Update(object):
                 self.merge(cached)
         self.execute() 
 
+    def __clear(self):
+        """
+        If using failure recovery features (ie init_cache), after caching, data
+        that will be executed to the database will be removed from the local update.
+        """
+        self.doc = {}
+        self.__setstate__(self.clear())
+
+
     def cache(self):
         """
         This method caches the update to redis.
@@ -137,6 +149,16 @@ class Update(object):
         """
         Return a dictionary of any attributes you manually set on the update. If
         you don't need it, don't override it.
+        """
+        return {}
+
+    def clear(self):
+        """
+        If using failure recovery features, after caching, any data which will
+        be executed to the database should be reset to an 'empty' state.
+        Return a dictionary of any attributes you set on the update along with
+        its base state.  If you aren't using any other attributes other than doc
+        to execute or not using the failure functionality, don't override this.
         """
         return {}
 

@@ -498,6 +498,36 @@ class UserUpdate(Update):
         client = self._Update__process.client
         client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
+class UserUpdateCustomField(Update):
+
+    def __init__(self, my_field, *args, **kwargs):
+        self.my_field = my_field
+        super(UserUpdateCustomField, self).__init__(*args, **kwargs)
+
+    def merge(self, user_update):
+        for k, v in (user_update.my_field or {}).items():
+            if k not in self.my_field:
+                self.my_field[k] = float(v)
+            else:
+                self.my_field[k] += float(v)
+
+    def execute(self):
+        obj = {
+                'my_field': self.my_field,
+                'spec': self.spec,
+                'collection': self.collection,
+                'database': self.database
+        }
+        client = self._Update__process.client
+        client.set("{0}.write".format(self.resource_id), json.dumps(obj))
+
+    def state(self):
+        return {"my_field": self.my_field}
+
+    def clear(self):
+        return {"my_field": {}}
+
+
 class UpdateTest(unittest.TestCase):
 
 
@@ -597,7 +627,7 @@ class UpdateTest(unittest.TestCase):
         client.flushall()
 
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         p._Process__heartbeat_timer.cancel()
 
@@ -624,7 +654,7 @@ class UpdateTest(unittest.TestCase):
         assert len(p.get_registry()) == 1
 
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         cached = pickle.loads(client.get(a.resource_id) or "{}")
 
@@ -751,3 +781,76 @@ class LruCacheTest(unittest.TestCase):
             pass
 
         assert self.cache.get_last_failed() is failing
+
+    def test_init_cache_merges_properly(self):
+        p = Process()
+        p.client.flushdb()
+
+        a = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
+        b = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
+
+        self.cache.set(p, a)
+        self.cache.set(p, b)
+
+        p2 = Process()
+        c = UserUpdate(process=p2, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
+        d = UserUpdate(process=p2, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
+
+        self.cache2 = LruCache(max_entries=5)
+
+        self.cache2.set(p, c)
+        self.cache2.set(p, d)
+
+        self.cache.expire_all()
+        self.cache2.expire_all()
+
+        written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
+        assert written['doc'] == {"e": 20.0, "d": 16.0, "f": 10.0}
+        assert written['spec'] == {"_id": 456}
+        assert written['collection'] == "user"
+        assert written['database'] == "test"
+
+        p.client.flushdb()
+        p.stop()
+        p2.stop()
+
+    def test_init_cache_merges_properly_with_custom_fields(self):
+        p = Process()
+        p.client.flushdb()
+
+        a = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 1.}, process=p, _id='456',
+                database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
+        b = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 2.}, process=p, _id='456',
+                database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
+
+        self.cache.set(p, a)
+        self.cache.set(p, b)
+
+        p2 = Process()
+        c = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 3.}, process=p2, _id='456',
+                database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
+        d = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 4.}, process=p2, _id='456',
+                database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
+
+        self.cache2 = LruCache(max_entries=5)
+
+        self.cache2.set(p, c)
+        self.cache2.set(p, d)
+
+        self.cache.expire_all()
+        self.cache2.expire_all()
+
+        written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
+        assert written['my_field'] == {"e": 20.0, "d": 16.0, "f": 10.0}
+        assert written['spec'] == {"_id": 456}
+        assert written['collection'] == "user"
+        assert written['database'] == "test"
+
+        p.client.flushdb()
+        p.stop()
+        p2.stop()
+
