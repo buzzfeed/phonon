@@ -161,15 +161,19 @@ The `Update` initializer takes the following arguments used primarily for bookke
 To instantiate our `WidgetUpdate` we'll take our JSON document converted to a `dict` and modify it slightly so it can be used simply in an `execute` method. Below we'll define the JSON document for clarity, but the typical use case is to consume this from some PUB/SUB interface.
 
 ```python
+# Here's the update doc...
 some_update = {
     'parent_post_id': 12345,
     'target_post_id': 67890,
     'event_type': "impression" 
 }
 
+# Less typing to set variables...
 pp_id = some_update.get('parent_post_id')
 tp_id = some_update.get('target_post_id')
 evt = some_update.get('event_type')
+
+# Now we can actually create a widget update with appropriate vars
 myupdate = WidgetUpdate(_id="{0}.{1}".format(pp_id, tp_id), 
     spec={'parent_post_id': pp_id, 'target_post_id': tp_id},
     doc={evt: 1}) 
@@ -177,8 +181,127 @@ myupdate = WidgetUpdate(_id="{0}.{1}".format(pp_id, tp_id),
 
 ### `state()`
 
+We don't actually need to create a `state()` method for this object since we didn't set any attributes on the instance besides those passed to the initializer. Keeping track of state, then, is totally handled for us.
+
+If we set some other attribute, though, we would need to. For example
+
+```python
+myupdate.foo = 1 
+```
+
+Would require a corresponding `state` function:
+
+```python
+class MyUpdate(Update):
+    def state(self):
+        return {'foo': self.foo}
+```
+
+where we've omitted the rest of the `MyUpdate` class definition for clarity.
+
 ### `clear()`
+
+In our example we also don't need a clear function since, again, we didn't set any attributes besides those defined. In the `MyUpdate` example above, however, clear would take the form
+
+```python
+class MyUpdate(Update):
+    def clear(self):
+        self.foo = 0 
+```
+It's simply what's required to re-initialize the `Update` such that it's execution will result in no modification of any database record (while it can still look up the correct record based on the spec).
 
 ### `merge()`
 
+This method will always need to be defined. It's simply what's required to add two `Update` objects together. In our primary example this would look like
+
+```python
+class WidgetUpdate(Update):
+
+    def merge(self, other):
+        for k, v in other.doc.items():
+            if k in self.doc:
+                self.doc += v
+            else:
+                self.doc[k] = v
+```
+You can rely on `other` being passed automatically, and it will always have the same type as `self`.
+
+It may seem a bit annoying to modify the attributes on `self.doc` in such a way as to always preserve their ability to be immediately written to the database, but users are encouraged not to make use of "bookkeeping attributes". These tend to require bookkeeping of their own and quickly grow confusing.  
+
+In our secondary example we would handle merging `foo` in the `merge` method as well. Since the types are the same it can be handled like
+
+```python
+class MyUpdate(Update):
+
+    def merge(self, other):
+        for k, v in other.doc.items():
+            if k in self.doc:
+                self.doc += v
+            else:
+                self.doc[k] = v
+        self.foo += other.foo
+```
+
 ### `execute()`
+
+Finally the `execute` method is just what's required to write this record to the database backend. In our Django example this is very simple. Putting it all together we have...
+
+```
+from django.db.models import F
+from django.db import DatabaseError
+
+class WidgetUpdate(Update):
+
+    def merge(self, other):
+        for k, v in other.doc.items():
+            if k in self.doc:
+                self.doc += v
+            else:
+                self.doc[k] = v
+
+    def execute(self):
+        try:
+            widget = Widget.objects.get_or_create(**self.spec)
+            for k, v in self.doc.items():
+                setattr(widget, k, F(k) + v)
+            widget.save()
+        except DatabaseError, e:
+            logger.error("Error updating widget: {0}".format(e))
+
+```
+
+There are many benefits to this framework. Primarily locking is handled, allowing merges of data structures that are not conflict free. When multiple updates are returned at the same time it's possible to employ logic resolving timeliness by adding that attrbute to the update object.
+
+When data structures are conflict free, we still get great benefits to coordination by aggregating in the cache before writing out to the database in the event multiple updates are created for a single spec.
+
+Added benefit comes about when multiple update types are used with similar interfaces since `merge` and `execute` patterns can often be re-used.
+
+```python
+class BaseUpdate(Update):
+    
+    def merge(self, other):
+        for k, v in other.doc.items():
+            if k in self.doc:
+                self.doc += v
+            else:
+                self.doc[k] = v
+
+    def execute(self):
+        try:
+            o = self.Model.objects.get_or_create(**self.spec)
+            for k, v in self.doc.items():
+                setattr(o, k, F(k) + v)
+            o.save()
+        except DatabaseError, e:
+            logger.error("Error updating {0}: {1}".format(o.__class__.__name__, e))
+
+class WidgetUpdate(BaseUpdate):
+    Model = Widget
+
+class UserUpdate(BaseUpdate):
+    Model = User
+
+class FooUpdate(BaseUpdate):
+    Model = Foo
+
+```

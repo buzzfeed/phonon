@@ -113,7 +113,7 @@ class Update(object):
         self.ref.increment_times_modified()
 
         if self.init_cache:
-            self.__reset()
+            self.__clear()
 
     def __execute(self):
         """
@@ -129,13 +129,13 @@ class Update(object):
                 self.merge(cached)
         self.execute() 
 
-    def __reset(self):
+    def __clear(self):
         """
         If using failure recovery features (ie init_cache), after caching, data
-        that will be executed to the database will be reset.
+        that will be executed to the database will be removed from the local update.
         """
         self.doc = {}
-        self.__setstate__(self.reset_states())
+        self.__setstate__(self.clear())
 
 
     def cache(self):
@@ -152,7 +152,7 @@ class Update(object):
         """
         return {}
 
-    def reset_states(self):
+    def clear(self):
         """
         If using failure recovery features, after caching, any data which will
         be executed to the database should be reset to an 'empty' state.

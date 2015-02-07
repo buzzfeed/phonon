@@ -524,7 +524,7 @@ class UserUpdateCustomField(Update):
     def state(self):
         return {"my_field": self.my_field}
 
-    def reset_states(self):
+    def clear(self):
         return {"my_field": {}}
 
 
