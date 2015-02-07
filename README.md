@@ -135,7 +135,7 @@ Our updates will come in one after the other from our on-site tracking code. We'
 {
     'parent_post_id': <int>,
     'target_post_id': <int>,
-    'event_type': <str["click"|"impression"]>
+    'event_type': <str["clicks"|"impressions"]>
 }
 ```
 
@@ -165,7 +165,7 @@ To instantiate our `WidgetUpdate` we'll take our JSON document converted to a `d
 some_update = {
     'parent_post_id': 12345,
     'target_post_id': 67890,
-    'event_type': "impression" 
+    'event_type': "impressions" 
 }
 
 # Less typing to set variables...
