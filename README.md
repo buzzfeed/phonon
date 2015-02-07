@@ -96,8 +96,8 @@ from phonon.cache import LruCache
 class UserUpdate(Update):
     def state(self):
         # Return a dict of only the attributes you set yourself. Didn't set any? Great. Don't override it. 
-    def reset_states(self):
-        # Return a dict of how to reset any fields you added and will execute on. Didn't set any or not using process recovery? Great. Don't override it. 
+    def clear(self):
+        # Clear all the attributes of this structure that allow it to be merged appropriately. Didn't set any yourself? Great. Don't override it. 
     def merge(self, other):
         # Merge an instance of this class with another, combining state.
     def execute(self):
@@ -114,3 +114,71 @@ for user_update in user_updates:
 lru_cache.expire_all()
 p.stop()
 ```
+
+This probably leaves you wondering how to create appropriate `state`, `clear`, `merge`, and `execute methods. Below we'll give a few practical examples with explanation of how to create an appropriate subclass.
+
+Let's say we want to aggregate clicks and impressions on on-site elements called `Widget`. Let's define `Widget` as follows:
+
+```python
+from django.db import models 
+
+class Widget(models.Model):
+    parent_post_id = models.IntegerField()
+    target_post_id = models.IntegerField()
+    impressions = models.IntegerField()
+    clicks = models.IntegerField()
+```
+
+Our updates will come in one after the other from our on-site tracking code. We'll receive JSON documents already converted to Python `dict` objects. Let's assume they take the form
+
+```python
+{
+    'parent_post_id': <int>,
+    'target_post_id': <int>,
+    'event_type': <str["click"|"impression"]>
+}
+```
+
+This data represents the bulk of what we wish to aggregate. Let's create an `Update` subclass called `WidgetUpdate` to work with.
+
+```python
+from phonon.update import Update
+
+class WidgetUpdate(Update):
+    pass
+```
+
+How should we instantiate it, then? The `Update` class was originally designed to work with MongoDB, but it can easily be adapted to any other type of database backend. Here we're using Django. Let's look at the adopted conventions and see how they translate to our new backend.
+
+The `Update` initializer takes the following arguments used primarily for bookkeeping and to save you a little typing:
+
+* **_id** --- *_id* In Django terms is simply the primary key *or* the unique key used to look up the object in your database. 
+* **database** --- *database* is just the name of your database in Django. You can probably just leave this field empty unless you need to actually refer to your database in your other methods. 
+* **collection** --- *collection* in Django-speak is analogous to your table name or your model's class name. Whichever you prefer. Again, you can leave this blank unless you need to refer to it later. A useful technique is to set the model definition as the collection.
+* **spec** --- the *spec* is the query used to find objects in your database to update. In Django terms it's the `dict` you might pass in as the argument to `filter` with a `**` to turn it into keyword arguments.
+* **doc** --- finally, the *doc* indicates the actual update to make. It's generally recommended your doc specify a dictionary that can be passed directly to your ORM's update method. For Django 1.7+ we strongly suggest providing a `dict` of your model attributes with the amount each should be incremented. If you're setting a value you will have to include the appropriate logic in your `merge` method. We'll see in a minute how this can be very flexible.
+
+To instantiate our `WidgetUpdate` we'll take our JSON document converted to a `dict` and modify it slightly so it can be used simply in an `execute` method. Below we'll define the JSON document for clarity, but the typical use case is to consume this from some PUB/SUB interface.
+
+```python
+some_update = {
+    'parent_post_id': 12345,
+    'target_post_id': 67890,
+    'event_type': "impression" 
+}
+
+pp_id = some_update.get('parent_post_id')
+tp_id = some_update.get('target_post_id')
+evt = some_update.get('event_type')
+myupdate = WidgetUpdate(_id="{0}.{1}".format(pp_id, tp_id), 
+    spec={'parent_post_id': pp_id, 'target_post_id': tp_id},
+    doc={evt: 1}) 
+```
+
+### `state()`
+
+### `clear()`
+
+### `merge()`
+
+### `execute()`
