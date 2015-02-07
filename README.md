@@ -115,7 +115,7 @@ lru_cache.expire_all()
 p.stop()
 ```
 
-This probably leaves you wondering how to create appropriate `state`, `clear`, `merge`, and `execute methods. Below we'll give a few practical examples with explanation of how to create an appropriate subclass.
+This probably leaves you wondering how to create appropriate `state`, `clear`, `merge`, and `execute` methods. Below we'll give a few practical examples with explanation of how to create an appropriate subclass.
 
 Let's say we want to aggregate clicks and impressions on on-site elements called `Widget`. Let's define `Widget` as follows:
 
@@ -246,7 +246,7 @@ class MyUpdate(Update):
 
 Finally the `execute` method is just what's required to write this record to the database backend. In our Django example this is very simple. Putting it all together we have...
 
-```
+```python
 from django.db.models import F
 from django.db import DatabaseError
 
