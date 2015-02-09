@@ -10,6 +10,7 @@ import time
 import logging
 import uuid
 
+from phonon import LOCAL_TZ
 from phonon.reference import Reference
 from phonon.process import Process
 from phonon.update import Update
@@ -561,6 +562,7 @@ class UpdateTest(unittest.TestCase):
         cached = pickle.loads(client.get(a.resource_id))
         state = cached.__getstate__()
         del state['resource_id']
+        del state['expiration']
         assert state == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
                 u'spec': {u'_id': 12345},
                 u'collection': u'user',
@@ -579,7 +581,7 @@ class UpdateTest(unittest.TestCase):
         assert c.ref.count() == 2, c.ref.count()
         b.end_session()
         assert c.ref.count() == 1, c.ref.count()
-        cached = pickle.loads(client.get(b.resource_id)) 
+        cached = pickle.loads(client.get(b.resource_id))
 
         observed_doc = cached.doc
         observed_spec = cached.spec
@@ -636,6 +638,7 @@ class UpdateTest(unittest.TestCase):
         cached = pickle.loads(client.get(a.resource_id) or "{}")
         state = cached.__getstate__()
         del state['resource_id']
+        del state['expiration']
         assert state == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
             u'spec': {u'_id': 12345},
             u'collection': u'user', 
@@ -683,6 +686,7 @@ class LruCacheTest(unittest.TestCase):
             def __init__(self, key):
                 self.key = key
                 self.__called = False
+                self.expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
             def merge(self, other):
                 self.__other = other
             def end_session(self):
@@ -691,6 +695,8 @@ class LruCacheTest(unittest.TestCase):
                 assert self.__called
             def assert_merged(self, other):
                 assert other is self.__other
+            def is_expired(self):
+                return datetime.datetime.now(LOCAL_TZ) > self.expiration
         return Update(key)
 
     def test_set_reorders_repeated_elements(self):
@@ -791,8 +797,8 @@ class LruCacheTest(unittest.TestCase):
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
                        spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
 
-        self.cache.set(p, a)
-        self.cache.set(p, b)
+        self.cache.set('456', a)
+        self.cache.set('456', b)
 
         p2 = Process()
         c = UserUpdate(process=p2, _id='456', database='test', collection='user',
@@ -802,8 +808,8 @@ class LruCacheTest(unittest.TestCase):
 
         self.cache2 = LruCache(max_entries=5)
 
-        self.cache2.set(p, c)
-        self.cache2.set(p, d)
+        self.cache2.set('456', c)
+        self.cache2.set('456', d)
 
         self.cache.expire_all()
         self.cache2.expire_all()
@@ -827,8 +833,8 @@ class LruCacheTest(unittest.TestCase):
         b = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 2.}, process=p, _id='456',
                 database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
 
-        self.cache.set(p, a)
-        self.cache.set(p, b)
+        self.cache.set('456', a)
+        self.cache.set('456', b)
 
         p2 = Process()
         c = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 3.}, process=p2, _id='456',
@@ -838,8 +844,8 @@ class LruCacheTest(unittest.TestCase):
 
         self.cache2 = LruCache(max_entries=5)
 
-        self.cache2.set(p, c)
-        self.cache2.set(p, d)
+        self.cache2.set('456', c)
+        self.cache2.set('456', d)
 
         self.cache.expire_all()
         self.cache2.expire_all()
@@ -854,3 +860,69 @@ class LruCacheTest(unittest.TestCase):
         p.stop()
         p2.stop()
 
+    def test_cache_ends_expired_sessions(self):
+        p = Process()
+
+        a = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+        b = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, ttl=.005)
+        c = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+
+        self.cache.set('456', a)
+        time.sleep(.04)
+        set_return = self.cache.set('456', b)
+
+        assert set_return is None
+
+        written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
+        assert written['doc'] == {"e": 10.0, "d": 8.0, "f": 3.0}
+
+        self.cache.set('456', c)
+        time.sleep(.04)
+
+        get_return = self.cache.get('456')
+
+        assert get_return is None
+
+        written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
+
+        assert written['doc'] == {"e": 5.0, "d": 4.0, "f": 1.0}
+
+        p.client.flushdb()
+        p.stop()
+
+    def test_cache_ends_multiprocess_expired_sessions(self):
+        p = Process()
+        p2 = Process()
+
+        self.cache2 = LruCache(max_entries=5)
+
+        a = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+        b = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, ttl=.005)
+        c = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, ttl=.005)
+
+        self.cache.set('456', a)
+        time.sleep(.04)
+        set_return = self.cache.set('456', b)
+        set_return_2 = self.cache2.set('456', c)
+
+        assert set_return is None
+        assert set_return_2 is True
+
+        written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
+        assert written['doc'] == {"e": 10.0, "d": 8.0, "f": 3.0}
+
+        get_return_2 = self.cache2.get('456')
+        assert get_return_2 is None
+
+        written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
+        assert written['doc'] == {"e": 2.0, "d": 1.0, "f": 3.0}
+
+        p.client.flushdb()
+        p.stop()
+        p2.stop()

@@ -59,17 +59,21 @@ class LruCache(object):
         """
         if key in self.__cache:
             update = self.__cache[key]
-            del self.__cache[key]
             update.merge(val)
+            if update.is_expired():
+                self.expire(key)
+                return None
+
+            del self.__cache[key]
             self.__cache[key] = update
-            return False 
+            return False
 
         if self.__size + 1 > self.max_entries:
             self.expire_oldest()
 
         self.__cache[key] = val
         self.__size += 1
-        return True 
+        return True
 
     def get(self, key):
         """
@@ -84,9 +88,13 @@ class LruCache(object):
         :rtype: phonon.update.Update
         """
         el = self.__cache[key]
+        if el.is_expired():
+            self.expire(key)
+            return None
+
         del self.__cache[key]
         self.__cache[key] = el
-        return el 
+        return el
 
     def expire_oldest(self):
         """
