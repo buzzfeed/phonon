@@ -1,8 +1,7 @@
-import json
 import pickle
+import datetime
 
-from phonon import PHONON_NAMESPACE
-from phonon.reference import Reference
+from phonon import PHONON_NAMESPACE, LOCAL_TZ
 
 
 class Update(object):
@@ -34,7 +33,10 @@ class Update(object):
     from redis.
     """
 
-    def __init__(self, process, _id, database='test', collection='test', spec=None, doc=None, init_cache=False, block=True):
+    TTL = 15 * 60  # 15 minutes
+
+    def __init__(self, process, _id, database='test', collection='test',
+                 spec=None, doc=None, init_cache=False, block=True, ttl=TTL):
         """
         :param Process process: The process object, unique to the node.
         :param str _id: The primary key for the record in the database.
@@ -47,6 +49,8 @@ class Update(object):
             of data in the event of a node failure, it may reduce performance.
         :param bool block: Optional. Whether or not to block when establishing
             locks.
+        :param int ttl: The maximum number of minutes an Update should live
+            before being forced to execute.
         """
         self.resource_id = '{0}_Update.{1}.{2}'.format(PHONON_NAMESPACE, collection, _id)
 
@@ -57,6 +61,8 @@ class Update(object):
         self.__process = process
         self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
         self.init_cache = init_cache
+        self.ttl = ttl
+        self.expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.ttl)
         if self.init_cache:
             self.__cache()
 
@@ -68,6 +74,9 @@ class Update(object):
         """
         return self.__process
 
+    def is_expired(self):
+        return datetime.datetime.now(LOCAL_TZ) > self.expiration
+
     def end_session(self, block=True):
         """
         Indicate to this update it's session has ended on the local machine.
@@ -77,7 +86,13 @@ class Update(object):
         """
         with self.ref.lock(block=block):
             if not self.ref.dereference(self.__execute):
-                self.__cache()
+                expired = self.is_expired()
+                if expired:
+                    self.__execute()
+                    self.__process.client.delete(self.ref.resource_key)
+                    self.__process.client.set(self.ref.times_modified_key, 0)
+                else:
+                    self.__cache()
 
     def __getstate__(self):
         default_state = {
@@ -85,7 +100,8 @@ class Update(object):
             'spec': self.spec,
             'doc': self.doc,
             'collection': self.collection,
-            'database': self.database
+            'database': self.database,
+            'expiration': self.expiration
         }
         user_defined_state = self.state()
 
