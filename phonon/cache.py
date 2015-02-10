@@ -55,21 +55,29 @@ class LruCache(object):
             in the cache. The easiest thing to do is implement your object
             updates as a sub-class of the `phonon.update.Update` class.
 
-        :returns: False if the size wasn't incremented, True otherwise.
+        :returns: False if the size wasn't incremented, True if it has been,
+            and None if val has been merged with an expired update and removed
+            from the cache.
         """
         if key in self.__cache:
             update = self.__cache[key]
-            del self.__cache[key]
             update.merge(val)
+            # If the existing update has passed its expiration, it is removed
+            # from the cache and forced to execute.
+            if update.is_expired():
+                self.expire(key)
+                return None
+
+            del self.__cache[key]
             self.__cache[key] = update
-            return False 
+            return False
 
         if self.__size + 1 > self.max_entries:
             self.expire_oldest()
 
         self.__cache[key] = val
         self.__size += 1
-        return True 
+        return True
 
     def get(self, key):
         """
@@ -81,12 +89,20 @@ class LruCache(object):
 
         :returns: The element in the cache at `key`.
         :raises: KeyError
-        :rtype: phonon.update.Update
+        :rtype: phonon.update.Update if the element at `key` is still active
+            and None if the element has expired and been removed from the
+            cache.
         """
         el = self.__cache[key]
+        if el.is_expired():
+            # If the update has passed its expiration, it is removed from the
+            # cache and forced to execute.
+            self.expire(key)
+            return None
+
         del self.__cache[key]
         self.__cache[key] = el
-        return el 
+        return el
 
     def expire_oldest(self):
         """
