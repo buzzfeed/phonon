@@ -1,4 +1,5 @@
 import random
+import zlib
 from collections import defaultdict
 from phonon.exceptions import ConfigError, ArgumentError
 from phonon.config.node import Node
@@ -165,5 +166,3 @@ class Shards(object):
 
         return stats
 
-    def route(self, key):
-        pass

@@ -1,18 +1,20 @@
 import pytz
 import math
 import logging
+import redis
 import sys
 from collections import defaultdict
 
 from phonon.exceptions import ConfigError, ArgumentError
 
+from phonon.router import Router
 from phonon.config.node import Node
 from phonon.config.shard import Shards, Shard
 
 LOCAL_TZ = pytz.utc
 PHONON_NAMESPACE = "phonon"
 SYSLOG_LEVEL = logging.WARNING
-TOPOLOGY = None
+SHARDS = None
 
 def get_logger(name, log_level=SYSLOG_LEVEL):
     """
@@ -94,11 +96,35 @@ def configure(config, quorum_size=None, shard_size=None, shards=100, log_level=l
     :param int log_level:
     """
     global SYSLOG_LEVEL
-    global TOPOLOGY
+    global SHARDS
     SYSLOG_LEVEL = log_level
     shard_size = shard_size or default_shard_size(config)
     quorum_size = quorum_size or default_quorum_size(shard_size)
-    TOPOLOGY = Shards(nodelist=config_to_nodelist(config),
+    SHARDS = Shards(nodelist=config_to_nodelist(config),
                       shards=shards,
                       quorum_size=quorum_size,
                       shard_size=shard_size)
+
+class Client(object):
+
+    def __init__(self):
+        global SHARDS
+        self.__router = Router(SHARDS)
+        self.__connections = {}
+
+    def __getattr__(self, item):
+        def wrapper(*args, **kwargs):
+            key = args[0] if args else kwargs.get('key')
+            shard = self.__router.route(key)
+            nodes = shard.nodes()
+            rvalues = []
+            try:
+                for node in nodes:
+                    if node.address not in self.__connections:
+                        self.__connections[node.address] = redis.StrictRedis(host=node.address, port=node.port, db=0)
+                    rvalues.append(getattr(self.__connections[node.address], item)(*args, **kwargs))
+            finally:
+                return rvalues
+
+        return wrapper
+
