@@ -106,6 +106,12 @@ def configure(config, quorum_size=None, shard_size=None, shards=100, log_level=l
                       shard_size=shard_size)
 
 class Client(object):
+    """
+    The client provides an abstraction over the normal redis-py StrictRedis client. It handles routing to shards for you.
+
+    The major difference in terms of normal use is just that this client will return a list of return values, one for each
+    node in the shard the request was routed to.
+    """
 
     def __init__(self):
         global SHARDS
