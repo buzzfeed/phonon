@@ -10,3 +10,4 @@ build
 *.egg
 .idea
 phonon.egg-info/
+docs/build
