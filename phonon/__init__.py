@@ -107,22 +107,23 @@ def configure(config, quorum_size=None, shard_size=None, shards=100, log_level=l
 
 class Client(object):
     """
-    The client provides an abstraction over the normal redis-py StrictRedis client. It handles routing to shards for you.
+    The client provides an abstraction over the normal redis-py StrictRedis client. It implements the router to handle writing to shards for you.
 
-    The major difference in terms of normal use is just that this client will return a list of return values, one for each
+    The major difference from this client and Redis or StrictRedis is this client will return a list of return values, one for each
     node in the shard the request was routed to.
     """
-
     def __init__(self):
         global SHARDS
         self.__router = Router(SHARDS)
         self.__connections = {}
 
+    def has_connection(self, hostname):
+        return hostname in self.__connections
+
     def __getattr__(self, item):
         def wrapper(*args, **kwargs):
             key = args[0] if args else kwargs.get('key')
-            shard = self.__router.route(key)
-            nodes = shard.nodes()
+            nodes = self.__router.route(key)
             rvalues = []
             try:
                 for node in nodes:

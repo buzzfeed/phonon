@@ -1,5 +1,8 @@
 References
-----------
+==========
+
+How they work
+-------------
 
 One of the building blocks for Phonon’s approach to coordination is reference counting. Coordinated objects each have a unique identifier per-aggregated structure. This is referred to as the resource_key. When two updates come in for the same resource_key on different worker machines, coordination is required.
 
@@ -26,6 +29,9 @@ Now the session ends on node B. B is aware there is information on Redis to get 
 .. image:: reference4.jpg
 
 If the database becomes unavailable a write can be retried. If the database is expected to be gone for a while, the user can extend the session for the update to keep it floating around a while longer. 
+
+Module Reference
+----------------
 
 .. automodule:: phonon.reference
     :members:

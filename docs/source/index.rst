@@ -23,11 +23,13 @@ Contents:
 .. toctree::
    :maxdepth: 2
 
+   phonon
    reference
    cache 
    exceptions
    process
    update
+   router
 
 Indices and tables
 ==================
