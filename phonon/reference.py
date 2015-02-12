@@ -77,6 +77,9 @@ class Reference(object):
             lock.
         """
 
+        if block is None:
+            block = self.block
+
         return self.__process.lock(self.resource_key, block)
 
     def refresh_session(self):
