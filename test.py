@@ -3,6 +3,7 @@ import pickle
 import mock
 import json
 import redis
+import random
 from dateutil import parser
 from collections import defaultdict
 import datetime
@@ -10,6 +11,8 @@ import pytz
 import time
 import logging
 import uuid
+import zlib
+from mockredis import mock_strict_redis_client
 
 from phonon.reference import Reference
 from phonon.process import Process
@@ -22,6 +25,7 @@ from phonon import default_quorum_size
 from phonon import default_shard_size
 from phonon import config_to_nodelist
 from phonon import configure
+from phonon import Client
 
 logging.disable(logging.CRITICAL)
 
@@ -66,7 +70,6 @@ class ProcessTest(unittest.TestCase):
         assert isinstance(p._Process__heartbeat_ref, Reference)
 
         p.stop()
-
 
     @mock.patch('time.time', side_effect=get_milliseconds_timestamp)
     def test_heartbeat_updates(self, time_time_patched):
@@ -197,7 +200,6 @@ class ProcessTest(unittest.TestCase):
 
         p1.stop()
 
-
     def test_process_self_recovery(self):
         p1 = Process(heartbeat_interval=.1)
 
@@ -218,7 +220,6 @@ class ProcessTest(unittest.TestCase):
         assert len(p1.get_registry()) == 1
 
         p1.stop()
-
 
     def test_no_active_process(self):
         p1 = Process(heartbeat_interval=.1)
@@ -308,7 +309,6 @@ class ReferenceTest(unittest.TestCase):
 
         p.stop()
 
-
     def test_refresh_session_sets_time_initially(self):
         p = Process()
         a = p.create_reference('foo')
@@ -366,7 +366,7 @@ class ReferenceTest(unittest.TestCase):
         assert a.count() == b.count()
         assert b.count() == c.count()
         assert c.count() == 3
-        
+
         p.stop()
         p2.stop()
         p3.stop()
@@ -449,7 +449,7 @@ class ReferenceTest(unittest.TestCase):
         pids = json.loads(b._Reference__process.client.get(b.reflist_key) or "{}")
         assert b._Reference__process.id not in pids
         assert len(pids) == 0
-        assert Process.client.get(a.reflist_key) == None, Process.client.get(a.reflist_key) 
+        assert Process.client.get(a.reflist_key) == None, Process.client.get(a.reflist_key)
         assert Process.client.get(a.resource_key) == None, Process.client.get(a.resource_key)
         assert Process.client.get(a.times_modified_key) == None, Process.client.get(a.times_modified_key)
 
@@ -475,7 +475,7 @@ class ReferenceTest(unittest.TestCase):
         p2 = Process()
         b = p2.create_reference('foo')
         foo = [1]
-        
+
         def callback(*args, **kwargs):
             foo.pop()
 
@@ -486,7 +486,8 @@ class ReferenceTest(unittest.TestCase):
 
         p.stop()
         p2.stop()
-    
+
+
 class UserUpdate(Update):
 
     def merge(self, user_update):
@@ -498,21 +499,21 @@ class UserUpdate(Update):
 
     def execute(self):
         obj = {
-                'doc': self.doc,
-                'spec': self.spec,
-                'collection': self.collection,
-                'database': self.database
+            'doc': self.doc,
+            'spec': self.spec,
+            'collection': self.collection,
+            'database': self.database
         }
         client = self._Update__process.client
         client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
-class UpdateTest(unittest.TestCase):
 
+class UpdateTest(unittest.TestCase):
 
     def test_process(self):
         p = Process()
-        a = UserUpdate(process=p,  _id='123', database='test', collection='user',
-                spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.})
+        a = UserUpdate(process=p, _id='123', database='test', collection='user',
+                       spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.})
         self.assertIs(p, a.process())
         self.assertIs(p.client, a.process().client)
 
@@ -520,8 +521,8 @@ class UpdateTest(unittest.TestCase):
 
     def test_initializer_updates_ref_count(self):
         p = Process()
-        a = UserUpdate(process=p,  _id='123', database='test', collection='user',
-                spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
+        a = UserUpdate(process=p, _id='123', database='test', collection='user',
+                       spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
 
         client = a._Update__process.client
         reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
@@ -533,23 +534,23 @@ class UpdateTest(unittest.TestCase):
     def test_cache_caches(self):
         p = Process()
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
+                       spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
         a.cache()
         client = a._Update__process.client
         cached = pickle.loads(client.get(a.resource_id))
         state = cached.__getstate__()
         del state['resource_id']
         assert state == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
-                u'spec': {u'_id': 12345},
-                u'collection': u'user',
-                u'database': u'test'}
+                         u'spec': {u'_id': 12345},
+                         u'collection': u'user',
+                         u'database': u'test'}
 
         client.flushall()
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
-                spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
         p2 = Process()
         c = UserUpdate(process=p2, _id='456', database='test', collection='user',
-                spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
 
         client = a._Update__process.client
         assert client.get(b.resource_id) is None, client.get(b.resource_id)
@@ -557,13 +558,13 @@ class UpdateTest(unittest.TestCase):
         assert c.ref.count() == 2, c.ref.count()
         b.end_session()
         assert c.ref.count() == 1, c.ref.count()
-        cached = pickle.loads(client.get(b.resource_id)) 
+        cached = pickle.loads(client.get(b.resource_id))
 
         observed_doc = cached.doc
         observed_spec = cached.spec
         observed_coll = cached.collection
         observed_db = cached.database
-        
+
         expected_doc = {u'd': 4.0, u'e': 5.0, u'f': 6.0}
         expected_spec = {u'_id': 456}
         expected_coll = u'user'
@@ -589,7 +590,7 @@ class UpdateTest(unittest.TestCase):
         expected_spec = {u'_id': 456}
         expected_coll = u'user'
         expected_db = u'test'
-       
+
         for k, v in target.get('doc').items():
             assert expected_doc[k] == v
         for k, v in expected_doc.items():
@@ -605,7 +606,7 @@ class UpdateTest(unittest.TestCase):
         client.flushall()
 
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+                       spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
 
         p._Process__heartbeat_timer.cancel()
 
@@ -615,11 +616,11 @@ class UpdateTest(unittest.TestCase):
         state = cached.__getstate__()
         del state['resource_id']
         assert state == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
-            u'spec': {u'_id': 12345},
-            u'collection': u'user', 
-            u'database': u'test'}
+                         u'spec': {u'_id': 12345},
+                         u'collection': u'user',
+                         u'database': u'test'}
 
-        p.client.hset(p.heartbeat_hash_name, p.id, int(time.time()) - 6*p.heartbeat_interval)
+        p.client.hset(p.heartbeat_hash_name, p.id, int(time.time()) - 6 * p.heartbeat_interval)
 
         p.id = unicode(uuid.uuid4())
         p.registry_key = p._Process__get_registry_key(p.id)
@@ -632,16 +633,16 @@ class UpdateTest(unittest.TestCase):
         assert len(p.get_registry()) == 1
 
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
+                       spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.})
 
         cached = pickle.loads(client.get(a.resource_id) or "{}")
 
         state = cached.__getstate__()
         del state['resource_id']
         state == {u'doc': {u'a': 2.0, u'c': 6.0, u'b': 4.0},
-            u'spec': {u'_id': 12345},
-            u'collection': u'user', 
-            u'database': u'test'}
+                  u'spec': {u'_id': 12345},
+                  u'collection': u'user',
+                  u'database': u'test'}
 
         p.stop()
 
@@ -650,6 +651,7 @@ class UpdateTest(unittest.TestCase):
 
     def test_end_session_executes_for_unique_references(self):
         pass
+
 
 class LruCacheTest(unittest.TestCase):
 
@@ -661,12 +663,16 @@ class LruCacheTest(unittest.TestCase):
             def __init__(self, key):
                 self.key = key
                 self.__called = False
+
             def merge(self, other):
                 self.__other = other
+
             def end_session(self):
-                self.__called = True 
+                self.__called = True
+
             def assert_end_session_called(self):
                 assert self.__called
+
             def assert_merged(self, other):
                 assert other is self.__other
         return Update(key)
@@ -712,7 +718,7 @@ class LruCacheTest(unittest.TestCase):
 
     def test_get_returns_elements(self):
         a = self.get_update('a')
-        self.cache.set('a', a) 
+        self.cache.set('a', a)
         assert self.cache.get('a') is a
         assert self.cache.size() == 1
         assert self.cache.get('a') is a
@@ -736,7 +742,7 @@ class LruCacheTest(unittest.TestCase):
                    self.get_update('c'),
                    self.get_update('d'),
                    self.get_update('e')]
-       
+
         for size, update in enumerate(updates):
             self.cache.set(update.key, update)
             assert self.cache.size() == size + 1
@@ -760,6 +766,7 @@ class LruCacheTest(unittest.TestCase):
 
         assert self.cache.get_last_failed() is failing
 
+
 class NodeTest(unittest.TestCase):
 
     def setUp(self):
@@ -772,12 +779,12 @@ class NodeTest(unittest.TestCase):
 
     def test_error_raised_without_hostname_or_ip(self):
         with self.assertRaisesRegexp(ConfigError,
-            "Each node must have a hostname and an ip"):
+                                     "Each node must have a hostname and an ip"):
             Node(region="foo")
 
     def test_error_raised_without_port(self):
         with self.assertRaisesRegexp(ConfigError,
-            "Port number must be an integer"):
+                                     "Port number must be an integer"):
             Node(hostname="foo", port="6379", region="foo")
 
     def test_error_raised_without_region(self):
@@ -846,6 +853,7 @@ class NodeTest(unittest.TestCase):
         assert self.a.status is Node.ASSIGNED
         assert self.b.status is Node.READY
 
+
 class ShardTest(unittest.TestCase):
 
     def setUp(self):
@@ -860,7 +868,7 @@ class ShardTest(unittest.TestCase):
             self.s.add(self.a)
 
     def test_argument_error_if_name_not_int(self):
-        shard = Shard(1L) # Should be fine
+        shard = Shard(1L)  # Should be fine
         assert shard.name == 1L
         with self.assertRaisesRegexp(ArgumentError, "Shard names must be integers."):
             Shard('1')
@@ -942,6 +950,7 @@ class ShardTest(unittest.TestCase):
         self.s.add(self.b)
         assert self.s.has_region("bar")
         assert self.s.has_region("baz")
+
 
 class ShardsTest(unittest.TestCase):
 
@@ -1087,8 +1096,8 @@ class ShardsTest(unittest.TestCase):
 
     def test_empty(self):
         s = Shards(nodelist={"a": [Node(hostname="b", region="a"), Node(hostname="c", region="a")],
-                         "d": [Node(hostname="e", region="d"), Node(hostname="f", region="d")]},
-               shards=100, quorum_size=2, shard_size=2)
+                             "d": [Node(hostname="e", region="d"), Node(hostname="f", region="d")]},
+                   shards=100, quorum_size=2, shard_size=2)
         s.submit()
         s.conform()
         s.add_node("a")
@@ -1110,6 +1119,7 @@ class ShardsTest(unittest.TestCase):
         assert s.stats().get('standby') == 1
         assert s.stats().get('unassigned') == 1
         assert s.stats().get('initializing') == 1
+
 
 class PhononTest(unittest.TestCase):
 
@@ -1137,13 +1147,68 @@ class PhononTest(unittest.TestCase):
 
         configure(config)
 
-        from phonon import TOPOLOGY
-        for shard in TOPOLOGY.shards():
+        from phonon import SHARDS
+        for shard in SHARDS.shards():
             sum(shard.regions.values()) == len(shard.nodes())
-            for node in TOPOLOGY.nodes():
+            for node in SHARDS.nodes():
                 assert node.status is Node.ASSIGNED
             assert len(shard.regions) == 2
             values = shard.regions.values()
             target = values[0]
             for value in values:
                 assert value == target, value
+
+
+class ClientTest(unittest.TestCase):
+
+    def setUp(self):
+        config = defaultdict(list)
+        alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        for i in alphabet:
+            region = i
+            for j in alphabet:
+                hostname = "{0}{1}".format(i, j)
+                config[region].append(hostname)
+        configure(config)
+        from phonon import SHARDS
+        self.shards = SHARDS
+
+    @mock.patch('redis.StrictRedis', mock_strict_redis_client)
+    def test_client_routes_to_all_nodes_in_shard(self):
+        key = ''
+        while zlib.crc32(key) % len(self.shards.shards()) != 0:
+            key = str(random.random())
+
+        shard = self.shards.shards()[0]
+        nodes = shard.nodes()
+
+        client = Client()
+        rval = client.set(key, 'foo')
+
+        assert len(rval) == sum(rval)
+        assert sum(rval) == len(nodes)
+        for node in nodes:
+            assert client.has_connection(node.address)
+
+        rval = client.get(key)
+        assert len(rval) == len(nodes)
+        for val in rval:
+            assert val == 'foo'
+
+        while zlib.crc32(key) % len(self.shards.shards()) != 5:
+            key = str(random.random())
+
+        shard = self.shards.shards()[5]
+        nodes = shard.nodes()
+
+        rval = client.set(key, 'foo')
+
+        assert len(rval) == sum(rval)
+        assert sum(rval) == len(nodes)
+        for node in nodes:
+            assert client.has_connection(node.address)
+
+        rval = client.get(key)
+        assert len(rval) == len(nodes)
+        for val in rval:
+            assert val == 'foo'

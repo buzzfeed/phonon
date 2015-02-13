@@ -1,7 +1,5 @@
 from collections import OrderedDict
 
-from phonon.exceptions import PhononError
-from phonon.exceptions import CacheError
 
 class LruCache(object):
 
@@ -61,14 +59,14 @@ class LruCache(object):
             del self.__cache[key]
             update.merge(val)
             self.__cache[key] = update
-            return False 
+            return False
 
         if self.__size + 1 > self.max_entries:
             self.expire_oldest()
 
         self.__cache[key] = val
         self.__size += 1
-        return True 
+        return True
 
     def get(self, key):
         """
@@ -85,7 +83,7 @@ class LruCache(object):
         el = self.__cache[key]
         del self.__cache[key]
         self.__cache[key] = el
-        return el 
+        return el
 
     def expire_oldest(self):
         """
@@ -98,7 +96,7 @@ class LruCache(object):
             expired.end_session()
         except Exception, e:
             self.__failed = expired
-            raise e 
+            raise e
 
     def expire(self, key):
         """
@@ -113,8 +111,8 @@ class LruCache(object):
             expired.end_session()
         except Exception, e:
             self.__failed = expired
-            raise e 
-        self.__size -= 1 
+            raise e
+        self.__size -= 1
 
     def expire_all(self):
         """
@@ -123,4 +121,3 @@ class LruCache(object):
         """
         while self.__size > 0:
             self.expire_oldest()
-

@@ -1,4 +1,5 @@
 import random
+import zlib
 from collections import defaultdict
 from phonon.exceptions import ConfigError, ArgumentError
 from phonon.config.node import Node
@@ -66,6 +67,7 @@ class Shard(object):
         """
         return region_name in self.regions
 
+
 class Shards(object):
     """
     Shards is a container for all the shards in the network configuration. Once established the shard configuration is submitted to redis. From that point on no nodes can re-submit a configuration by re-initializing.
@@ -91,11 +93,11 @@ class Shards(object):
         self.__nodelist = nodelist
 
         unassigned = True
-        while unassigned: # Generally shards >> regions or nodes ensuring a good balance
+        while unassigned:  # Generally shards >> regions or nodes ensuring a good balance
             self.__shards = [Shard(name=n) for n in xrange(shards)]
             for shard in self.__shards:
                 a, b = tuple(random.sample(self.__nodelist.keys(), 2))
-                ideal_balance = self.__shard_size/2
+                ideal_balance = self.__shard_size / 2
                 nodelist = random.sample(self.__nodelist[a], ideal_balance)
                 nodelist += random.sample(self.__nodelist[b], ideal_balance)
                 for node in nodelist:
@@ -104,6 +106,12 @@ class Shards(object):
 
     def shards(self):
         return self.__shards
+
+    def __len__(self):
+        return len(self.__shards)
+
+    def __getitem__(self, item):
+        return self.__shards[item]
 
     def nodes(self):
         return {node for region, nodes in self.__nodelist.items() for node in nodes}
