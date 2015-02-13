@@ -12,7 +12,6 @@ import time
 import logging
 import uuid
 import zlib
-from mockredis import mock_strict_redis_client
 
 from phonon import LOCAL_TZ
 from phonon.reference import Reference
@@ -1348,7 +1347,6 @@ class ClientTest(unittest.TestCase):
         from phonon import SHARDS
         self.shards = SHARDS
 
-    @mock.patch('redis.StrictRedis', mock_strict_redis_client)
     def test_client_routes_to_all_nodes_in_shard(self):
         key = ''
         while zlib.crc32(key) % len(self.shards.shards()) != 0:
