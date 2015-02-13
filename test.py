@@ -189,7 +189,7 @@ class ProcessTest(unittest.TestCase):
         assert p1.id in ref_list
 
         p1.stop()
-
+        p2.stop()
 
     def test_process_self_recovery(self):
         p1 = Process(heartbeat_interval=.1)
