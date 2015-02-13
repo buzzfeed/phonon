@@ -1,6 +1,7 @@
 from phonon.exceptions import ConfigError
 from phonon.exceptions import ArgumentError
 
+
 class Node(object):
 
     INITIALIZING = 0

@@ -121,4 +121,3 @@ class LruCache(object):
         """
         while self.__size > 0:
             self.expire_oldest()
-
