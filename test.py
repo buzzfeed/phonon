@@ -508,6 +508,7 @@ class UserUpdate(Update):
         client = self._Update__process.client
         client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
+
 class UserUpdateCustomField(Update):
 
     def __init__(self, my_field, *args, **kwargs):
@@ -523,10 +524,10 @@ class UserUpdateCustomField(Update):
 
     def execute(self):
         obj = {
-                'my_field': self.my_field,
-                'spec': self.spec,
-                'collection': self.collection,
-                'database': self.database
+            'my_field': self.my_field,
+            'spec': self.spec,
+            'collection': self.collection,
+            'database': self.database
         }
         client = self._Update__process.client
         client.set("{0}.write".format(self.resource_id), json.dumps(obj))
@@ -637,7 +638,7 @@ class UpdateTest(unittest.TestCase):
         client.flushall()
 
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
+                       spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         p._Process__heartbeat_timer.cancel()
 
@@ -665,7 +666,7 @@ class UpdateTest(unittest.TestCase):
         assert len(p.get_registry()) == 1
 
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
-                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
+                       spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         cached = pickle.loads(client.get(a.resource_id) or "{}")
 
@@ -684,6 +685,7 @@ class UpdateTest(unittest.TestCase):
     def test_end_session_executes_for_unique_references(self):
         pass
 
+
 class LruCacheTest(unittest.TestCase):
 
     def setUp(self):
@@ -695,7 +697,7 @@ class LruCacheTest(unittest.TestCase):
                 self.key = key
                 self.__called = False
                 self.expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
-            
+
             def merge(self, other):
                 self.__other = other
 
@@ -710,7 +712,7 @@ class LruCacheTest(unittest.TestCase):
 
             def is_expired(self):
                 return datetime.datetime.now(LOCAL_TZ) > self.expiration
-        
+
         return Update(key)
 
     def test_set_reorders_repeated_elements(self):
@@ -807,18 +809,18 @@ class LruCacheTest(unittest.TestCase):
         p.client.flushdb()
 
         a = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
 
         self.cache.set('456', a)
         self.cache.set('456', b)
 
         p2 = Process()
         c = UserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
         d = UserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
 
         self.cache2 = LruCache(max_entries=5)
 
@@ -843,18 +845,18 @@ class LruCacheTest(unittest.TestCase):
         p.client.flushdb()
 
         a = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 1.}, process=p, _id='456',
-                database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
+                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
         b = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 2.}, process=p, _id='456',
-                database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
+                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
 
         self.cache.set('456', a)
         self.cache.set('456', b)
 
         p2 = Process()
         c = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 3.}, process=p2, _id='456',
-                database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
+                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
         d = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 4.}, process=p2, _id='456',
-                database='test', collection='user', spec= {u'_id': 456},  init_cache=True)
+                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
 
         self.cache2 = LruCache(max_entries=5)
 
@@ -878,11 +880,11 @@ class LruCacheTest(unittest.TestCase):
         p = Process()
 
         a = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, ttl=.005)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, ttl=.005)
         c = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
 
         self.cache.set('456', a)
         time.sleep(.04)
@@ -914,11 +916,11 @@ class LruCacheTest(unittest.TestCase):
         self.cache2 = LruCache(max_entries=5)
 
         a = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, ttl=.005)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, ttl=.005)
         c = UserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, ttl=.005)
+                       spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, ttl=.005)
 
         self.cache.set('456', a)
         time.sleep(.04)
@@ -940,6 +942,7 @@ class LruCacheTest(unittest.TestCase):
         p.client.flushdb()
         p.stop()
         p2.stop()
+
 
 class NodeTest(unittest.TestCase):
 
