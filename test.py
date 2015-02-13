@@ -1207,7 +1207,3 @@ class ClientTest(unittest.TestCase):
             assert val == 'foo'
 
 
-
-
-
-

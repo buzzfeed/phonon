@@ -171,4 +171,3 @@ class Shards(object):
                     stats['assigned'] += 1
 
         return stats
-

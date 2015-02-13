@@ -241,4 +241,3 @@ class Reference(object):
         client.hdel(self.__process.registry_key, self.resource_key)
 
         return rc
-

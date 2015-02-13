@@ -165,4 +165,3 @@ class Update(object):
         raise NotImplemented("You must define a merge method that merges it's\
             argument with this object.")
 
-

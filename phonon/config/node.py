@@ -56,5 +56,3 @@ class Node(object):
                 self.status = Node.UNASSIGNED
         else:
             self.status = status
-
-

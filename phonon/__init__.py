@@ -16,6 +16,7 @@ PHONON_NAMESPACE = "phonon"
 SYSLOG_LEVEL = logging.WARNING
 SHARDS = None
 
+
 def get_logger(name, log_level=SYSLOG_LEVEL):
     """
     Sets up a logger to syslog at a given log level with the standard log format.
@@ -134,4 +135,3 @@ class Client(object):
                 return rvalues
 
         return wrapper
-

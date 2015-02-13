@@ -14,4 +14,3 @@ class Router(object):
         :returns: The shard to route this request to.
         """
         return self.__shards[zlib.crc32(key) % len(self.__shards)].nodes()
-
