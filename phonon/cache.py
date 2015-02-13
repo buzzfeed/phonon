@@ -1,8 +1,5 @@
 from collections import OrderedDict
 
-from phonon.exceptions import PhononError
-from phonon.exceptions import CacheError
-
 class LruCache(object):
 
     def __init__(self, max_entries=10000):
