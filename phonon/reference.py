@@ -4,7 +4,7 @@ import sys
 
 from dateutil import parser
 
-from phonon import get_logger, PHONON_NAMESPACE, LOCAL_TZ
+from phonon import get_logger, PHONON_NAMESPACE, LOCAL_TZ, TTL
 
 logger = get_logger(__name__)
 
@@ -118,7 +118,7 @@ class Reference(object):
         if not rc:
             client.incr(key, 1)
         else:
-            client.pexpire(key, self.__process.TTL * 1000) # ttl is in ms
+            client.pexpire(key, TTL * 1000) # ttl is in ms
 
     def get_times_modified(self):
         """
@@ -167,7 +167,7 @@ class Reference(object):
 
     def remove_failed_processes(self, pids):
         """
-        When a process has held a reference for longer than Reference.TTL
+        When a process has held a reference for longer than its process_ttl
         without refreshing it's session; this method will detect, log, and
         prune that reference. This is a low-level method that doesn't do any
         querying. 
@@ -182,7 +182,7 @@ class Reference(object):
         """
         for pid, iso_date in pids.items():
             last_updated = parser.parse(iso_date)
-            if (datetime.datetime.now(LOCAL_TZ) - last_updated) > datetime.timedelta(seconds=self.__process.session_length):
+            if (datetime.datetime.now(LOCAL_TZ) - last_updated) > datetime.timedelta(seconds=self.__process.process_ttl):
                 del pids[pid]
         return pids
 

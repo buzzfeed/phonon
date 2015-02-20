@@ -10,7 +10,7 @@ import time
 import logging
 import uuid
 
-from phonon import LOCAL_TZ
+from phonon import LOCAL_TZ, TTL
 from phonon.reference import Reference
 from phonon.process import Process
 from phonon.update import Update
@@ -390,7 +390,7 @@ class ReferenceTest(unittest.TestCase):
 
     def test_remove_failed_processes(self):
         now = datetime.datetime.now(pytz.utc)
-        expired = now - datetime.timedelta(seconds=2 * Process.TTL + 1)
+        expired = now - datetime.timedelta(seconds=2 * TTL + 1)
         pids = {u'1': now.isoformat(),
                 u'2': expired.isoformat()}
 
@@ -562,7 +562,7 @@ class UpdateTest(unittest.TestCase):
         cached = pickle.loads(client.get(a.resource_id))
         state = cached.__getstate__()
         del state['resource_id']
-        del state['expiration']
+        del state['hard_expiration']
         assert state == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
                 u'spec': {u'_id': 12345},
                 u'collection': u'user',
@@ -638,7 +638,7 @@ class UpdateTest(unittest.TestCase):
         cached = pickle.loads(client.get(a.resource_id) or "{}")
         state = cached.__getstate__()
         del state['resource_id']
-        del state['expiration']
+        del state['hard_expiration']
         assert state == {u'doc': {u'a': 1.0, u'c': 3.0, u'b': 2.0},
             u'spec': {u'_id': 12345},
             u'collection': u'user', 
@@ -670,6 +670,22 @@ class UpdateTest(unittest.TestCase):
 
         p.stop()
 
+    def test_session_refreshes(self):
+        p = Process()
+        client = p.client
+
+        a = UserUpdate(process=p, _id='12345', database='test', collection='user',
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, soft_session=5)
+        b = UserUpdate(process=p, _id='12345', database='test', collection='user',
+                spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, soft_session=5)
+
+        old_soft_expiration = a.soft_expiration
+        a.refresh(b)
+
+        assert a.soft_expiration >= a.soft_expiration
+        p.stop()
+
+
     def test_end_session_raises_when_deadlocked(self):
         pass
 
@@ -686,7 +702,8 @@ class LruCacheTest(unittest.TestCase):
             def __init__(self, key):
                 self.key = key
                 self.__called = False
-                self.expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
+                self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
+                self.hard_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
             def merge(self, other):
                 self.__other = other
             def end_session(self):
@@ -695,8 +712,11 @@ class LruCacheTest(unittest.TestCase):
                 assert self.__called
             def assert_merged(self, other):
                 assert other is self.__other
+            def refresh(self, other):
+                self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
+                self.merge(other)
             def is_expired(self):
-                return datetime.datetime.now(LOCAL_TZ) > self.expiration
+                return datetime.datetime.now(LOCAL_TZ) > self.hard_expiration
         return Update(key)
 
     def test_set_reorders_repeated_elements(self):
@@ -860,15 +880,41 @@ class LruCacheTest(unittest.TestCase):
         p.stop()
         p2.stop()
 
+    def test_cache_handles_soft_sessions(self):
+        p = Process()
+
+        a = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.005)
+        b = UserUpdate(process=p, _id='456', database='test', collection='user',
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.005)
+
+        self.cache.set('456', a)
+        time.sleep(.04)
+        set_return = self.cache.set('456', b)
+
+        assert set_return is False
+        written = p.client.get('{0}.write'.format(a.resource_id))
+        assert written is None
+
+        time.sleep(.04)
+        get_return = self.cache.get('456')
+        assert get_return is None
+
+        written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
+        assert written['doc'] == {"e": 10.0, "d": 8.0, "f": 3.0}
+
+        p.client.flushdb()
+        p.stop()
+
     def test_cache_ends_expired_sessions(self):
         p = Process()
 
         a = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, ttl=.005)
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
         c = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
 
         self.cache.set('456', a)
         time.sleep(.04)
@@ -900,11 +946,11 @@ class LruCacheTest(unittest.TestCase):
         self.cache2 = LruCache(max_entries=5)
 
         a = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, ttl=.005)
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, ttl=.005)
+                       spec= {u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
         c = UserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec= {u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, ttl=.005)
+                       spec= {u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
 
         self.cache.set('456', a)
         time.sleep(.04)

@@ -61,7 +61,7 @@ class LruCache(object):
         """
         if key in self.__cache:
             update = self.__cache[key]
-            update.merge(val)
+            update.refresh(val)
             # If the existing update has passed its expiration, it is removed
             # from the cache and forced to execute.
             if update.is_expired():
@@ -115,7 +115,7 @@ class LruCache(object):
             expired.end_session()
         except Exception, e:
             self.__failed = expired
-            raise e 
+            raise e
 
     def expire(self, key):
         """

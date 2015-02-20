@@ -4,7 +4,7 @@ import sys
 
 LOCAL_TZ = pytz.utc
 PHONON_NAMESPACE = "phonon"
-
+TTL = 30 * 60 
 
 SYSLOG_LEVEL = logging.WARNING
 
