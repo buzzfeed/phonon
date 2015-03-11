@@ -4,7 +4,7 @@ import time
 import threading
 import math
 
-from phonon import get_logger, DisRefError, PHONON_NAMESPACE
+from phonon import get_logger, DisRefError, PHONON_NAMESPACE, TTL
 from phonon.reference import Reference
 
 logger = get_logger(__name__)
@@ -20,7 +20,6 @@ class Process(object):
 
     """
 
-    TTL = 30 * 60  # 30 minutes
     RETRY_SLEEP = 0.5    # Second
     BLOCKING_TIMEOUT = 500
 
@@ -41,7 +40,7 @@ class Process(object):
 
         def __enter__(self):
             blocking_timeout = self.__process.BLOCKING_TIMEOUT if self.block else 0
-            self.__lock = self.client.lock(name=self.lock_key, timeout=self.__process.TTL,
+            self.__lock = self.client.lock(name=self.lock_key, timeout=TTL,
                     sleep=self.__process.RETRY_SLEEP, blocking_timeout=blocking_timeout)
 
             self.__lock.__enter__()
@@ -57,12 +56,11 @@ class Process(object):
     class AlreadyLocked(DisRefError):
         pass
 
-    def __init__(self, session_length=int(0.5*TTL), host='localhost', port=6379, db=1, heartbeat_interval=10, recover_failed_processes=True):
+    def __init__(self, process_ttl=int(0.5*TTL), host='localhost', port=6379, db=1, heartbeat_interval=10, recover_failed_processes=True):
         """
-        :param session_length int: The session length for the resource. e.g. If
-            this represents an update for a User, the session_length would be
-            the session length for that user. This should be at most 1/2 the
-            length of the TTL for the Reference.
+        :param process_ttl int: The time after which we consider a node to be
+            unresponsive. This should be at most 1/2 the length of the TTL
+            value.
         :param str host: The host to connect to redis over.
         :param int port: The port to connect to redis on.
         :param int heartbeat_interval: The frequency in seconds with which to
@@ -72,7 +70,7 @@ class Process(object):
 
         """
         self.id = unicode(uuid.uuid4())
-        self.session_length = session_length
+        self.process_ttl = process_ttl
         self.recover_failed_processes = recover_failed_processes
 
         if not hasattr(Process, 'client'):

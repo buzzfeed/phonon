@@ -1,7 +1,7 @@
 import pickle
 import datetime
 
-from phonon import PHONON_NAMESPACE, LOCAL_TZ
+from phonon import PHONON_NAMESPACE, LOCAL_TZ, TTL
 
 
 class Update(object):
@@ -33,10 +33,9 @@ class Update(object):
     from redis.
     """
 
-    TTL = 15 * 60  # 15 minutes
-
     def __init__(self, process, _id, database='test', collection='test',
-                 spec=None, doc=None, init_cache=False, block=True, ttl=TTL):
+                 spec=None, doc=None, init_cache=False, block=True, hard_session=TTL,
+                 soft_session=.5*TTL):
         """
         :param Process process: The process object, unique to the node.
         :param str _id: The primary key for the record in the database.
@@ -49,9 +48,12 @@ class Update(object):
             of data in the event of a node failure, it may reduce performance.
         :param bool block: Optional. Whether or not to block when establishing
             locks.
-        :param int ttl: The maximum number of minutes an Update should live
-            before being forced to execute when used in conjunction with the
-            LRU Cache
+        :param int hard_session: The maximum number of minutes an Update should
+            live before being forced to execute. Generally speaking, this value
+            should be larger than then soft_session.
+        :param int soft_session: The maximum number of minutes an Update should
+            live before being forced to execute.  However, unlike the hard_session,
+            this value can is refreshed to extend the life of the session.
         """
         self.resource_id = '{0}_Update.{1}.{2}'.format(PHONON_NAMESPACE, collection, _id)
 
@@ -62,8 +64,10 @@ class Update(object):
         self.__process = process
         self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
         self.init_cache = init_cache
-        self.ttl = ttl
-        self.expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.ttl)
+        self.hard_session = hard_session
+        self.soft_session = soft_session
+        self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.soft_session)
+        self.hard_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.hard_session)
         if self.init_cache:
             self.__cache()
 
@@ -80,7 +84,9 @@ class Update(object):
         :rtype: bool
         :returns: Indicates whether the Update has passed its expiration
         """
-        return datetime.datetime.now(LOCAL_TZ) > self.expiration
+        current_time = datetime.datetime.now(LOCAL_TZ)
+        return (current_time > self.hard_expiration or
+                current_time > self.soft_expiration)
 
     def end_session(self, block=True):
         """
@@ -110,7 +116,7 @@ class Update(object):
             'doc': self.doc,
             'collection': self.collection,
             'database': self.database,
-            'expiration': self.expiration
+            'hard_expiration': self.hard_expiration
         }
         user_defined_state = self.state()
 
@@ -186,6 +192,17 @@ class Update(object):
         to execute or not using the failure functionality, don't override this.
         """
         return {}
+
+    def refresh(self, update):
+        """
+        Given an instance of another update, merge it into this update and this
+        update's soft session length.
+
+        :param dict update: Exactly what you wrote in your `cache` method, but
+            already parsed from JSON into a python `dict`.
+        """
+        self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.soft_session)
+        self.merge(update)
 
     def execute(self):
         """
