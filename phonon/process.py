@@ -72,6 +72,10 @@ class Process(object):
         self.id = unicode(uuid.uuid4())
         self.process_ttl = process_ttl
         self.recover_failed_processes = recover_failed_processes
+        self.heartbeat_interval = heartbeat_interval
+        self.heartbeat_hash_name = "{0}_heartbeat".format(PHONON_NAMESPACE)
+        self.__heartbeat_timer = None
+        self.__heartbeat_ref = None
 
         if not hasattr(Process, 'client'):
             Process.client = redis.StrictRedis(host=host, port=port, db=db)
@@ -83,13 +87,11 @@ class Process(object):
                                 .format(connection_kwargs['port'], connection_kwargs['host'], connection_kwargs['db']))
 
         self.client = Process.client
+        self.client.ping()
 
         self.registry_key = self.__get_registry_key(self.id)
 
-        self.heartbeat_interval = heartbeat_interval
-        self.heartbeat_hash_name = "{0}_heartbeat".format(PHONON_NAMESPACE)
         self.__heartbeat_ref = self.create_reference(self.heartbeat_hash_name)
-        self.__heartbeat_timer = None
         self.__update_heartbeat()
 
     def create_reference(self, resource, block=True):
@@ -253,8 +255,9 @@ class Process(object):
         if self.__heartbeat_timer:
             self.__heartbeat_timer.cancel()
 
-        with self.__heartbeat_ref.lock():
-            self.__heartbeat_ref.dereference()
+        if self.__heartbeat_ref:
+            with self.__heartbeat_ref.lock():
+                self.__heartbeat_ref.dereference()
 
     def __del__(self):
         self.stop()
