@@ -439,9 +439,9 @@ class ReferenceTest(unittest.TestCase):
         pids = json.loads(b._Reference__process.client.get(b.reflist_key) or "{}")
         assert b._Reference__process.id not in pids
         assert len(pids) == 0
-        assert Process.client.get(a.reflist_key) == None, Process.client.get(a.reflist_key)
-        assert Process.client.get(a.resource_key) == None, Process.client.get(a.resource_key)
-        assert Process.client.get(a.times_modified_key) == None, Process.client.get(a.times_modified_key)
+        assert Process.client.get(a.reflist_key) is None, Process.client.get(a.reflist_key)
+        assert Process.client.get(a.resource_key) is None, Process.client.get(a.resource_key)
+        assert Process.client.get(a.times_modified_key) is None, Process.client.get(a.times_modified_key)
 
         p.stop()
         p2.stop()
@@ -690,6 +690,178 @@ class UpdateTest(unittest.TestCase):
 
     def test_end_session_executes_for_unique_references(self):
         pass
+
+    def test_force_expiry(self):
+        p = Process()
+        client = p.client
+        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+        b = UserUpdate(process=p, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
+
+        assert a.ref.count() == 1, a.ref.count()
+        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
+        assert len(reflist) == 1
+        assert b.ref.count() == 1, b.ref.count()
+        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
+        assert len(reflist) == 1
+
+        assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
+        a.ref.force_expiry = True
+        a.end_session()
+
+        assert a.ref.count() == 0, a.ref.count()
+        assert client.get(a.resource_id) is None, client.get(a.resource_id)
+        assert b.ref.count() == 0, b.ref.count()
+        assert client.get(b.resource_id) is None, client.get(b.resource_id)
+
+        target = json.loads(client.get("{0}.write".format(a.resource_id)) or "{}")
+        observed_doc = target.get('doc')
+        observed_spec = target.get('spec')
+        observed_coll = target.get('collection')
+        observed_db = target.get('database')
+
+        expected_doc = {u'a': 5.0, u'b': 7.0, u'c': 9.0}
+        expected_spec = {u'_id': 123456}
+        expected_coll = u'user'
+        expected_db = u'test'
+
+        for k, v in observed_doc.items():
+            assert expected_doc[k] == v, k
+        for k, v in expected_doc.items():
+            assert observed_doc[k] == v, k
+
+        assert observed_coll == expected_coll
+        assert observed_db == expected_db
+        assert observed_spec == expected_spec
+
+        p.stop()
+
+    def test_force_expiry_two_processes(self):
+        p = Process()
+        p2 = Process()
+        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+        b = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
+
+        client = a._Update__process.client
+
+        assert a.ref.count() == 2, a.ref.count()
+        assert b.ref.count() == 2, b.ref.count()
+        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
+        assert len(reflist) == 2
+        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
+        assert len(reflist) == 2
+
+        assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
+        a.ref.force_expiry = True
+        a.end_session()
+
+        assert a.ref.count() == 0, a.ref.count()
+        assert client.get(a.resource_id) is None, client.get(a.resource_id)
+        assert b.ref.count() == 0, b.ref.count()
+        assert client.get(b.resource_id) is None, client.get(b.resource_id)
+
+        target = json.loads(client.get("{0}.write".format(a.resource_id)) or "{}")
+        observed_doc = target.get('doc')
+        observed_spec = target.get('spec')
+        observed_coll = target.get('collection')
+        observed_db = target.get('database')
+
+        expected_doc = {u'a': 5.0, u'b': 7.0, u'c': 9.0}
+        expected_spec = {u'_id': 123456}
+        expected_coll = u'user'
+        expected_db = u'test'
+
+        for k, v in observed_doc.items():
+            assert expected_doc[k] == v, k
+        for k, v in expected_doc.items():
+            assert observed_doc[k] == v, k
+
+        assert observed_coll == expected_coll
+        assert observed_db == expected_db
+        assert observed_spec == expected_spec
+
+        p.stop()
+        p2.stop()
+
+    def test_force_expiry_two_processes_caching(self):
+        p = Process()
+        p2 = Process()
+        p3 = Process()
+        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+        b = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
+        c = UserUpdate(process=p3, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
+
+        client = a._Update__process.client
+
+        assert a.ref.count() == 3, a.ref.count()
+        assert b.ref.count() == 3, b.ref.count()
+        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
+        assert len(reflist) == 3
+        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
+        assert len(reflist) == 3
+
+        b.cache()
+        b.end_session()
+        assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
+        a.ref.force_expiry = True
+        a.end_session()
+
+        assert a.ref.count() == 0, a.ref.count()
+        assert client.get(a.resource_id) is None, client.get(a.resource_id)
+        assert b.ref.count() == 0, b.ref.count()
+        assert client.get(b.resource_id) is None, client.get(b.resource_id)
+
+        target = json.loads(client.get("{0}.write".format(a.resource_id)) or "{}")
+        observed_doc = target.get('doc')
+        observed_spec = target.get('spec')
+        observed_coll = target.get('collection')
+        observed_db = target.get('database')
+
+        expected_doc = {u'a': 5.0, u'b': 7.0, u'c': 9.0}
+        expected_spec = {u'_id': 123456}
+        expected_coll = u'user'
+        expected_db = u'test'
+
+        for k, v in observed_doc.items():
+            assert expected_doc[k] == v, k
+        for k, v in expected_doc.items():
+            assert observed_doc[k] == v, k
+
+        assert observed_coll == expected_coll
+        assert observed_db == expected_db
+        assert observed_spec == expected_spec
+
+        c.cache()
+        c.end_session()
+        target = json.loads(client.get("{0}.write".format(c.resource_id)) or "{}")
+        observed_doc = target.get('doc')
+        observed_spec = target.get('spec')
+        observed_coll = target.get('collection')
+        observed_db = target.get('database')
+
+        expected_doc = {u'a': 7.0, u'b': 8.0, u'c': 9.0}
+        expected_spec = {u'_id': 123456}
+        expected_coll = u'user'
+        expected_db = u'test'
+
+        for k, v in observed_doc.items():
+            assert expected_doc[k] == v, k
+        for k, v in expected_doc.items():
+            assert observed_doc[k] == v, k
+
+        assert observed_coll == expected_coll
+        assert observed_db == expected_db
+        assert observed_spec == expected_spec
+
+        p.stop()
+        p2.stop()
+        p3.stop()
 
 
 class LruCacheTest(unittest.TestCase):

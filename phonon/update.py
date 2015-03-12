@@ -9,7 +9,7 @@ class Update(object):
     It's common for a database backend to be a bottleneck when data is
     aggregated for access through an API. This method is intended to be used in
     the implementation of an efficient, distributed write-through cache.
-    
+
     Let's say we are collecting impression events with NSQ, and our application
     implementation is on the consuming side of a PUB/SUB interface. The goal is
     to aggregate impressions per-user such that a user can be queried by ID,
@@ -90,14 +90,14 @@ class Update(object):
 
     def end_session(self, block=True):
         """
-        Indicate to this update it's session has ended on the local machine.
+        Indicate to this update its session has ended on the local machine.
         The implementation of your cache, merge, and execute methods will be
         used to write to redis or your database backend as efficiently as
         possible.
         """
         with self.ref.lock(block=block):
             if not self.ref.dereference(self.__execute):
-                if self.is_expired():
+                if self.is_expired() or self.ref.force_expiry:
                     # If this update has expired but other active references
                     # to the resource still exist, we force this update to
                     # execute. We reset the time_modified_key and cached data
@@ -158,7 +158,7 @@ class Update(object):
             if pickled:
                 cached = pickle.loads(pickled)
                 self.merge(cached)
-        self.execute() 
+        self.execute()
 
     def __clear(self):
         """
@@ -167,7 +167,6 @@ class Update(object):
         """
         self.doc = {}
         self.__setstate__(self.clear())
-
 
     def cache(self):
         """
@@ -228,5 +227,3 @@ class Update(object):
         """
         raise NotImplemented("You must define a merge method that merges it's\
             argument with this object.")
-
-
