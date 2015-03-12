@@ -81,7 +81,7 @@ class LruCache(object):
         the `merge` method will be called on the existing element to merge the
         new element with the existing one. The element will then be marked as
         recently updated. If this would result in more than `max_entries`
-        existing in the cache; the oldes element in the cache will be expired.
+        existing in the cache; the oldest element in the cache will be expired.
         New elements will just be added to the cache, and the size of the cache
         will be incremented.
 

@@ -1,12 +1,12 @@
 import datetime
 import json
-import sys
 
 from dateutil import parser
 
 from phonon import get_logger, PHONON_NAMESPACE, LOCAL_TZ, TTL
 
 logger = get_logger(__name__)
+
 
 class Reference(object):
     """
@@ -16,7 +16,7 @@ class Reference(object):
 
     This class also provides a layer of abstraction on failover and cleanup. In
     the event of total process failure; a reference on that process will expire
-    and be subsequenty detected/recovered by this class to the extent updates
+    and be subsequently detected/recovered by this class to the extent updates
     overlap.
 
     More in-depth:
@@ -59,6 +59,7 @@ class Reference(object):
         self.block = block
         self.reflist_key = "{0}_{1}.reflist".format(PHONON_NAMESPACE, resource)
         self.times_modified_key = "{0}_{1}.times_modified".format(PHONON_NAMESPACE, resource)
+        self.force_expiry = False
         self.__lock = None
         self.__process = process
 
@@ -104,7 +105,6 @@ class Reference(object):
 
         client.set(self.reflist_key, json.dumps(reflist))
 
-
     def increment_times_modified(self):
         """
         Increments the number of times this resource has been modified by all
@@ -118,7 +118,7 @@ class Reference(object):
         if not rc:
             client.incr(key, 1)
         else:
-            client.pexpire(key, TTL * 1000) # ttl is in ms
+            client.pexpire(key, TTL * 1000)  # ttl is in ms
 
     def get_times_modified(self):
         """
@@ -137,7 +137,7 @@ class Reference(object):
     def count(self):
         """
         This method should only be called while the reference is locked.
-        
+
         :returns: The total number of elements in the reference list.
         :rtype: int
         """
@@ -149,8 +149,8 @@ class Reference(object):
 
     def remove_failed_process(self, pid):
         """
-        Removes a particular process id from this reference's 
-        reflist. This method should only be called while the reference is 
+        Removes a particular process id from this reference's
+        reflist. This method should only be called while the reference is
         locked.
 
         :param pid: A string representing the process id to remove.
@@ -164,13 +164,12 @@ class Reference(object):
             del reflist[pid]
             client.set(self.reflist_key, json.dumps(reflist))
 
-
     def remove_failed_processes(self, pids):
         """
         When a process has held a reference for longer than its process_ttl
         without refreshing it's session; this method will detect, log, and
         prune that reference. This is a low-level method that doesn't do any
-        querying. 
+        querying.
 
         :param pids: A dictionary of str -> str keyed on the process id, with
             the value being the last time the session was refreshed for that
@@ -217,20 +216,23 @@ class Reference(object):
             args = tuple()
         if kwargs is None:
             kwargs = {}
-        
+
         client = self.__process.client
-        reflist = client.get(self.reflist_key)
 
-        if reflist is not None:
-            pids = json.loads(reflist)
-            if self.__process.id in pids:  # It won't be here if a dereference previously failed at the delete step.
-                del pids[self.__process.id]
+        if self.force_expiry:
+            pids = {}
+        else:
+            reflist = client.get(self.reflist_key)
 
-        # Check for failed processes
-        pids = self.remove_failed_processes(pids)
+            if reflist is not None:
+                pids = json.loads(reflist)
+                if self.__process.id in pids:  # It won't be here if a dereference previously failed at the delete step.
+                    del pids[self.__process.id]
+            # Check for failed processes
+            pids = self.remove_failed_processes(pids)
         rc = True
         if pids:
-            rc = False # This is not the last process  
+            rc = False  # This is not the last process
 
         try:
             val = json.dumps(pids)
@@ -244,4 +246,3 @@ class Reference(object):
         client.hdel(self.__process.registry_key, self.resource_key)
 
         return rc
-
