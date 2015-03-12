@@ -1,12 +1,35 @@
 from collections import OrderedDict
+import threading
+import Queue
+import time
 from phonon import DisRefError
+from phonon import get_logger
+
+logger = get_logger(__name__)
+
 
 class CacheError(DisRefError):
     pass
 
+
+def expire_updates(cache, update_queue):
+    import Queue
+    from phonon import get_logger
+    logger = get_logger('phonon.cache.expire_updates(daemon)')
+    while True:
+        try:
+            update = update_queue.get()
+            update.end_session()
+        except Queue.Empty, e:
+            time.sleep(1)
+        except Exception, e:
+            cache.set_failed(update)
+            logger.error("Got an error while ending session: {0}".format(e))
+
+
 class LruCache(object):
 
-    def __init__(self, max_entries=10000):
+    def __init__(self, max_entries=10000, async=False):
         """
         Initializes the LRU (least recently used) cache. This cache handles
         shuffling elements around based on the last time they were accessed.
@@ -22,6 +45,19 @@ class LruCache(object):
         self.__cache = OrderedDict()
         self.__size = 0
         self.__failed = None
+        self.__async = async
+        self.__expire_thread = None
+        if async:
+            self.__expire_queue = Queue.Queue()
+            self.__start_async_expiry()
+
+    def __start_async_expiry(self):
+        if not self.__async:
+            return None
+        if self.__expire_thread is None or not self.__expire_thread.is_alive():
+            self.__expire_thread = threading.Thread(target=expire_updates, args=(self, self.__expire_queue,))
+            self.__expire_thread.daemon = True
+            self.__expire_thread.start()
 
     def size(self):
         """
@@ -104,18 +140,18 @@ class LruCache(object):
         self.__cache[key] = el
         return el
 
+    def set_failed(self, update):
+        self.__failed = update
+
     def expire_oldest(self):
         """
         Expires the last element in the cache, reducing the cache size
         appropriately. Ends the session for that element.
         """
-        key, expired = self.__cache.popitem(last=False)
-        self.__size -= 1
         try:
-            expired.end_session()
-        except Exception, e:
-            self.__failed = expired
-            raise e
+            self.expire(next(iter(self.__cache)))
+        except StopIteration, e:
+            pass
 
     def expire(self, key):
         """
@@ -127,11 +163,15 @@ class LruCache(object):
         expired = self.__cache[key]
         del self.__cache[key]
         try:
-            expired.end_session()
+            if self.__async:
+                self.__start_async_expiry()  # Restart process if it failed for whatever reason.
+                self.__expire_queue.put(expired)
+            else:
+                expired.end_session()
         except Exception, e:
             self.__failed = expired
-            raise e 
-        self.__size -= 1 
+            raise e
+        self.__size -= 1
 
     def expire_all(self):
         """
@@ -140,4 +180,3 @@ class LruCache(object):
         """
         while self.__size > 0:
             self.expire_oldest()
-

@@ -1,11 +1,11 @@
 __author__ = "andrew.kelleher@buzzfeed.com (Andrew Kelleher)"
 
 try:
-  from setuptools import setup, find_packages
+    from setuptools import setup, find_packages
 except ImportError:
-  import distribute_setup
-  distribute_setup.use_setuptools()
-  from setuptools import setup, find_packages
+    import distribute_setup
+    distribute_setup.use_setuptools()
+    from setuptools import setup, find_packages
 
 setup(
     name='phonon',
@@ -22,7 +22,7 @@ setup(
     classifiers=[
         'Intended Audience :: Developers',
         'Intended Audience :: System Administrators',
-        'Development Status :: 3 - Alpha', 
+        'Development Status :: 3 - Alpha',
     ],
     keywords="distributed reference references aggregation pipeline big data online algorithm"
 )
