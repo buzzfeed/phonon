@@ -193,5 +193,3 @@ class LruCache(object):
         for key, update in to_expire:
             if update.is_expired():
                 self.expire(key)
-
-
