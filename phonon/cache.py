@@ -180,3 +180,16 @@ class LruCache(object):
         """
         while self.__size > 0:
             self.expire_oldest()
+
+    def purge(self):
+        """
+        Runs through the entire cache, removing expired elements.
+
+        """
+        to_expire = []
+        for key, update in self.__cache.items():
+            if update.is_expired():
+                to_expire.append((key, update))
+        for key, update in to_expire:
+            if update.is_expired():
+                self.expire(key)
