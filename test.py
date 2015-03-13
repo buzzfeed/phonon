@@ -698,6 +698,45 @@ class LruCacheTest(unittest.TestCase):
         self.cache = LruCache(max_entries=5, async=False)
         self.async_cache = LruCache(max_entries=5, async=True)
 
+    def test_purge(self):
+        a = self.get_update('a')
+        b = self.get_update('b')
+
+        self.cache.set(1, a)
+        self.cache.set(2, b)
+
+        assert self.cache.get(1).key == a.key
+        assert self.cache.get(2).key == b.key
+
+        a.is_expired = lambda: True
+        b.is_expired = lambda: False
+        self.cache.purge()
+
+        assert a.called()
+        assert not b.called()
+
+    def test_purge_async(self):
+        a = self.get_update('a')
+        b = self.get_update('b')
+
+        self.async_cache.set(1, a)
+        self.async_cache.set(2, b)
+
+        assert self.async_cache.get(1).key == a.key
+        assert self.async_cache.get(2).key == b.key
+
+        a.is_expired = lambda: True
+        b.is_expired = lambda: False
+        self.async_cache.purge()
+
+        retries = 100
+        while retries > 0 and not a.called():
+            time.sleep(0.01)
+            retries += 1
+
+        assert a.called()
+        assert not b.called()
+
     def get_update(self, key):
         class Update(object):
 
