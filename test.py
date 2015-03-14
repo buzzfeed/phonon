@@ -485,6 +485,7 @@ class ReferenceTest(unittest.TestCase):
         p.stop()
         p2.stop()
 
+
 class UserUpdate(Update):
 
     def merge(self, user_update):
@@ -1470,6 +1471,7 @@ class LruCacheTest(unittest.TestCase):
         p.stop()
         p2.stop()
 
+
 class NodeTest(unittest.TestCase):
 
     def setUp(self):
@@ -1482,12 +1484,12 @@ class NodeTest(unittest.TestCase):
 
     def test_error_raised_without_hostname_or_ip(self):
         with self.assertRaisesRegexp(ConfigError,
-            "Each node must have a hostname and an ip"):
+                                     "Each node must have a hostname and an ip"):
             Node(region="foo")
 
     def test_error_raised_without_port(self):
         with self.assertRaisesRegexp(ConfigError,
-            "Port number must be an integer"):
+                                     "Port number must be an integer"):
             Node(hostname="foo", port="6379", region="foo")
 
     def test_error_raised_without_region(self):
@@ -1556,6 +1558,7 @@ class NodeTest(unittest.TestCase):
         assert self.a.status is Node.ASSIGNED
         assert self.b.status is Node.READY
 
+
 class ShardTest(unittest.TestCase):
 
     def setUp(self):
@@ -1570,7 +1573,7 @@ class ShardTest(unittest.TestCase):
             self.s.add(self.a)
 
     def test_argument_error_if_name_not_int(self):
-        shard = Shard(1L) # Should be fine
+        shard = Shard(1L)  # Should be fine
         assert shard.name == 1L
         with self.assertRaisesRegexp(ArgumentError, "Shard names must be integers."):
             Shard('1')
@@ -1652,6 +1655,7 @@ class ShardTest(unittest.TestCase):
         self.s.add(self.b)
         assert self.s.has_region("bar")
         assert self.s.has_region("baz")
+
 
 class ShardsTest(unittest.TestCase):
 
@@ -1797,8 +1801,8 @@ class ShardsTest(unittest.TestCase):
 
     def test_empty(self):
         s = Shards(nodelist={"a": [Node(hostname="b", region="a"), Node(hostname="c", region="a")],
-                         "d": [Node(hostname="e", region="d"), Node(hostname="f", region="d")]},
-               shards=100, quorum_size=2, shard_size=2)
+                             "d": [Node(hostname="e", region="d"), Node(hostname="f", region="d")]},
+                   shards=100, quorum_size=2, shard_size=2)
         s.submit()
         s.conform()
         s.add_node("a")
@@ -1820,6 +1824,7 @@ class ShardsTest(unittest.TestCase):
         assert s.stats().get('standby') == 1
         assert s.stats().get('unassigned') == 1
         assert s.stats().get('initializing') == 1
+
 
 class PhononTest(unittest.TestCase):
 
