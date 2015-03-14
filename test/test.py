@@ -1868,8 +1868,9 @@ class PhononTest(unittest.TestCase):
             for value in values:
                 assert value == target, value
 
+
 class ClientTest(unittest.TestCase):
-   
+
     def setUp(self):
         config = defaultdict(list)
         alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -1915,4 +1916,3 @@ class ClientTest(unittest.TestCase):
 
         rval = client.get(key)
         assert rval == 'foo'
-

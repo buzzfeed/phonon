@@ -17,6 +17,7 @@ TTL = 30 * 60
 
 logger = get_logger(__name__)
 
+
 def default_quorum_size(shard_size=None):
     """
     Figures out the minimum quorum size for a given shard size assuming the nodes are split evenly between regions.
@@ -32,6 +33,7 @@ def default_quorum_size(shard_size=None):
     if shard_size % quorum_size == 0:
         return quorum_size + 1
     return quorum_size
+
 
 def default_shard_size(config):
     """
@@ -49,6 +51,7 @@ def default_shard_size(config):
     region_sizes.sort()
     return 2 * min(region_sizes)
 
+
 def config_to_nodelist(config):
     """
     Converts a configuration of hostnames to the same data structure with the hostnames replaced by phonon.node.Node objects.
@@ -63,6 +66,7 @@ def config_to_nodelist(config):
             for hostname in hostnames:
                 nodelist[region].append(Node(hostname=hostname, region=region))
     return nodelist
+
 
 def configure(config, quorum_size=None, shard_size=None, shards=100, log_level=logging.WARNING):
     """
@@ -80,7 +84,6 @@ def configure(config, quorum_size=None, shard_size=None, shards=100, log_level=l
     shard_size = shard_size or default_shard_size(config)
     quorum_size = quorum_size or default_quorum_size(shard_size)
     SHARDS = Shards(nodelist=config_to_nodelist(config),
-                      shards=shards,
-                      quorum_size=quorum_size,
-                      shard_size=shard_size)
-
+                    shards=shards,
+                    quorum_size=quorum_size,
+                    shard_size=shard_size)

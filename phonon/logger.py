@@ -5,6 +5,7 @@ import sys
 
 SYSLOG_LEVEL = logging.INFO
 
+
 def get_logger(name, log_level=SYSLOG_LEVEL):
     """
     Sets up a logger to syslog at a given log level with the standard log format.

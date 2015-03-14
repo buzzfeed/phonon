@@ -7,6 +7,7 @@ import pickle
 
 from phonon.client.config import LOCAL_TZ
 
+
 class Value(object):
 
     def __init__(self, value, ttl):
@@ -27,6 +28,7 @@ class Value(object):
         """
         return self.expiration - (1000. * time.mktime(datetime.datetime.now(LOCAL_TZ).timetuple()))
 
+
 class Operation(object):
 
     def keys(self, *args, **kwargs):
@@ -42,7 +44,7 @@ class Operation(object):
         return pickle.loads(zlib.decompress(s))
 
     KEYS = keys
-    PRE_HOOKS = lambda : {}
+    PRE_HOOKS = lambda: {}
 
     def __init__(self, call):
         """
@@ -98,76 +100,96 @@ class Operation(object):
 ADMIN = set([
     'bgrewriteaof',
     'bgsave',
-    ])
+])
 
 READS = set(['auth', 'pfcount', 'bitcount', 'ping', 'bitpos', 'psubscribe', 'pubsub', 'pttl', 'client_list', 'quit', 'client_getname', 'randomkey', 'cluster_slots', 'command', 'role', 'command_count', 'command_getkeys', 'command_info', 'config_get', 'scard', 'dbsize', 'script_exists', 'debug_object', 'dump', 'echo', 'exists', 'sismember', 'get', 'getbit', 'smembers', 'getrange', 'hexists', 'srandmember', 'hget', 'hgetall', 'strlen', 'subscribe', 'hkeys', 'hlen', 'hmget', 'time', 'ttl', 'type', 'unsubscribe', 'hvals', 'zcard', 'info', 'zcount', 'keys', 'lastsave', 'lindex', 'zlexcount', 'zrange', 'llen', 'zrangebylex', 'zrevrangebylex', 'zrangebyscore', 'lpushx', 'zrank', 'lrange', 'mget', 'migrate', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', 'scan', 'sscan', 'object', 'hscan', 'zscan'])
+
 
 class WriteOperation(Operation):
     pass
 
+
 class ReadOperation(Operation):
     pass
+
 
 def pre_hook(client, op):
     print client, op
     return 3
 
+
 class Set(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.get(op.call.args[0])}
     UNDO = lambda meta, op: ['set', meta['pvalue']]
+
 
 class Del(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.get(op.call.args[0])}
     UNDO = lambda meta, op: ['set', meta['pvalue']]
 
+
 class SetNX(WriteOperation):
     UNDO = lambda meta, op: ['del', op.call.args[0]]
+
 
 class Incr(WriteOperation):
     UNDO = lambda meta, op: ['decr', op.call.args[0]]
 
+
 class Decr(WriteOperation):
     UNDO = lambda meta, op: ['incr', op.call.args[0]]
 
+
 class HSet(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.hget(op.call.args[0], op.call.args[1])}
-    UNDO =lambda meta, op: ['hset', op.call.args[0], op.call.args[1], meta['pvalue']]
+    UNDO = lambda meta, op: ['hset', op.call.args[0], op.call.args[1], meta['pvalue']]
+
 
 class HDel(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.hget(op.call.args[0], op.call.args[1])}
     UNDO = lambda meta, op: ['hset', op.call.args[0], op.call.args[1], meta['pvalue']]
 
+
 class IncrByFloat(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.get(op.call.args[0])}
     UNDO = lambda meta, op: ['set', op.call.args[0], meta['pvalue']]
+
 
 class HIncrByFloat(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.hget(op.call.args[0], op.call.args[1])}
     UNDO = lambda meta, op: ['set', op.call.args[0], op.call.args[1], meta['pvalue']]
 
+
 class IncrBy(WriteOperation):
     UNDO = lambda meta, op: ['decrby', op.call.args[0], op.call.args[1]]
 
+
 class DecrBy(WriteOperation):
     UNDO = lambda meta, op: ['incrby', op.call.args[0], op.call.args[1]]
+
 
 class HIncrBy(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.hget(op.call.args[0], op.call.args[1])}
     UNDO = lambda meta, op: ['set', op.call.args[0], op.call.args[1], meta['pvalue']]
 
+
 class PExpire(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.pttl(op.call.args[0])}
     UNDO = lambda meta, op: ['pexpire', op.call.args[0], meta['pvalue']]
 
+
 class Expire(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.pttl(op.call.args[0])}
-    UNDO = lambda meta, op: ['pexpire', op.call.args[0], meta['pvalue']/1000.]
+    UNDO = lambda meta, op: ['pexpire', op.call.args[0], meta['pvalue'] / 1000.]
+
 
 class PSetEx(WriteOperation):
     UNDO = lambda pv, rv, k, ms, v: ['psetex', k, pv.ms_exp(), pv.value]
 
+
 class Append(WriteOperation):
     UNDO = lambda pv, rv, k, v: ['set', k, pv.value]
+
 
 class BLPop(WriteOperation):
     KEYS = lambda *args, **kwargs: args if not isinstance(args[-1], int) else args[:-1]
@@ -259,6 +281,6 @@ OPERATIONS = {
     'bitop': WriteOperation,
     'pfadd': WriteOperation,
     'pfmerge': WriteOperation
-    }
+}
 
 OPERATIONS.update({k: ReadOperation for k in READS})

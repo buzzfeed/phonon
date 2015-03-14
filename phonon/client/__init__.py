@@ -20,6 +20,7 @@ from phonon.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 class Call(object):
 
     def __init__(self, func, args, kwargs):
@@ -27,7 +28,9 @@ class Call(object):
         self.args = args
         self.kwargs = kwargs
 
+
 class Client(object):
+
     """
     The client provides an abstraction over the normal redis-py StrictRedis client. It implements the router to handle writing to shards for you with strong guarantees.
 
@@ -37,7 +40,7 @@ class Client(object):
     """
     MAX_CONNECTION_RETRIES = 10
     MAX_OPERATION_RETRIES = 5
-    CONNECTION_INITIAL_WAIT = 0.5 # Seconds
+    CONNECTION_INITIAL_WAIT = 0.5  # Seconds
 
     def __init__(self):
         self.__router = Router(config.SHARDS)
@@ -120,7 +123,7 @@ class Client(object):
             majority = ordered[-1][0]
             if isinstance(majority, ReadError):
                 raise NoMajority("Majority of nodes failed on read.")
-            return majority, [i for i, v in enumerate(votes) if v != majority] # majority, inconsistent
+            return majority, [i for i, v in enumerate(votes) if v != majority]  # majority, inconsistent
         raise NoMajority("No majority found on shard for key")
 
     def __rollback(self, op, inconsistent=None):
@@ -166,12 +169,12 @@ class Client(object):
                     self.__write_oplog(pipeline, key, op)
                     getattr(pipeline, op.call.func)(key, *args, **kwargs)
                     print "Executing"
-                    rc = pipeline.execute() # [TODO: Check for possible failure/success values. Can they all be evaluated naively as truthy?]
+                    rc = pipeline.execute()  # [TODO: Check for possible failure/success values. Can they all be evaluated naively as truthy?]
                     print "Succeeded"
-                    if not all(rc): # Must be unanimous on a shard
+                    if not all(rc):  # Must be unanimous on a shard
                         raise Rollback("Failed to add op to pipeline.")
         except Exception, e:
-            raise Rollback("{0}".format(e)) #[TODO: Flag node causing rollback as PFAIL]
+            raise Rollback("{0}".format(e))  # [TODO: Flag node causing rollback as PFAIL]
 
     def __commit(self, op):
         try:
@@ -204,7 +207,7 @@ class Client(object):
                     elif isinstance(op, ReadOperation):
                         majority, inconsistencies = self.__get_consensus(op)
                         if inconsistencies:
-                            self.__rollback(op, inconsistencies) # Try to passively correct inconsistencies.
+                            self.__rollback(op, inconsistencies)  # Try to passively correct inconsistencies.
                         return majority
                 except Rollback, e:
                     logger.error("Caught error causing rollback: {0}".format(e))
@@ -220,4 +223,3 @@ class Client(object):
             raise ReadError("Maximum retries exceeded.")
 
         return wrapper
-

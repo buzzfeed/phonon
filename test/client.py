@@ -19,6 +19,7 @@ from phonon import logger
 
 console = logger.get_logger(__name__, log_level=logging.INFO)
 
+
 def mock_redis(f):
 
     @mock.patch('redis.StrictRedis', mock_strict_redis_client)
@@ -28,6 +29,7 @@ def mock_redis(f):
     wrapped.__name__ = f.__name__
 
     return wrapped
+
 
 class ClientTest(unittest.TestCase):
 
@@ -85,7 +87,7 @@ class ClientTest(unittest.TestCase):
 
     @mock_redis
     def test_get_connects_when_not_connected(self):
-        assert self.client.get('foo') == None # Causes Connection
+        assert self.client.get('foo') == None  # Causes Connection
 
         a = Node('A', region='wc')
         b = Node('B', region='wc')
