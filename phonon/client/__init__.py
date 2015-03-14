@@ -144,7 +144,6 @@ class Client(object):
                 except Exception, e:
                     logger.error("Error during rollback: {0}".format(e))
 
-
     def __write_oplog(self, pipeline, key, op):
         pipeline.set("{0}.oplog".format(key), op.to_str())
 
@@ -166,12 +165,13 @@ class Client(object):
                     pipeline = self.pipeline(node)
                     self.__write_oplog(pipeline, key, op)
                     getattr(pipeline, op.call.func)(key, *args, **kwargs)
+                    print "Executing"
                     rc = pipeline.execute() # [TODO: Check for possible failure/success values. Can they all be evaluated naively as truthy?]
+                    print "Succeeded"
                     if not all(rc): # Must be unanimous on a shard
                         raise Rollback("Failed to add op to pipeline.")
         except Exception, e:
-            #[TODO: Flag node causing rollback as PFAIL]
-            raise Rollback("{0}".format(e))
+            raise Rollback("{0}".format(e)) #[TODO: Flag node causing rollback as PFAIL]
 
     def __commit(self, op):
         try:

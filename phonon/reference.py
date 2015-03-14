@@ -1,12 +1,12 @@
 import datetime
 import json
-import sys
 
 from dateutil import parser
 
 from phonon.logger import get_logger
 from phonon.client.config import PHONON_NAMESPACE
 from phonon.client.config import LOCAL_TZ
+from phonon.process import TTL
 
 logger = get_logger(__name__)
 

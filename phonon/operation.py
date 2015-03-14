@@ -108,6 +108,10 @@ class WriteOperation(Operation):
 class ReadOperation(Operation):
     pass
 
+def pre_hook(client, op):
+    print client, op
+    return 3
+
 class Set(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.get(op.call.args[0])}
     UNDO = lambda meta, op: ['set', meta['pvalue']]

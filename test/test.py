@@ -14,7 +14,8 @@ import uuid
 import zlib
 from mockredis import mock_strict_redis_client
 
-from phonon import LOCAL_TZ, TTL
+from phonon.client.config import LOCAL_TZ
+from phonon.process import TTL
 from phonon.reference import Reference
 from phonon.process import Process
 from phonon.update import Update
@@ -1893,15 +1894,12 @@ class ClientTest(unittest.TestCase):
         client = Client()
         rval = client.set(key, 'foo')
 
-        assert len(rval) == sum(rval)
-        assert sum(rval) == len(nodes)
+        assert rval
         for node in nodes:
-            assert client.has_connection(node.address)
+            assert client.has_connection(node)
 
         rval = client.get(key)
-        assert len(rval) == len(nodes)
-        for val in rval:
-            assert val == 'foo'
+        assert rval == 'foo'
 
         while zlib.crc32(key) % len(self.shards.shards()) != 5:
             key = str(random.random())
@@ -1911,13 +1909,10 @@ class ClientTest(unittest.TestCase):
 
         rval = client.set(key, 'foo')
 
-        assert len(rval) == sum(rval)
-        assert sum(rval) == len(nodes)
+        assert rval
         for node in nodes:
-            assert client.has_connection(node.address)
+            assert client.has_connection(node)
 
         rval = client.get(key)
-        assert len(rval) == len(nodes)
-        for val in rval:
-            assert val == 'foo'
+        assert rval == 'foo'
 

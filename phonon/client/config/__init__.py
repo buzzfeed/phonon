@@ -11,7 +11,9 @@ from phonon.logger import get_logger
 
 LOCAL_TZ = pytz.utc
 PHONON_NAMESPACE = "phonon"
+SYSLOG_LEVEL = logging.warning
 SHARDS = None
+TTL = 30 * 60
 
 logger = get_logger(__name__)
 

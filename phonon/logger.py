@@ -3,7 +3,7 @@ __author__ = 'Andrew Kelleher'
 import logging
 import sys
 
-SYSLOG_LEVEL = logging.WARNING
+SYSLOG_LEVEL = logging.INFO
 
 def get_logger(name, log_level=SYSLOG_LEVEL):
     """

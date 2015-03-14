@@ -5,13 +5,11 @@ import threading
 import math
 
 from phonon.logger import get_logger
-from phonon import PHONON_NAMESPACE, TTL
-from phonon.client.config import PHONON_NAMESPACE
+from phonon.client.config import PHONON_NAMESPACE, TTL
 from phonon.exceptions import PhononError
 from phonon.reference import Reference
 
 logger = get_logger(__name__)
-
 
 class Process(object):
 

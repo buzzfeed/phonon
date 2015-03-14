@@ -2,10 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import mock
-import time
+import uuid
 import redis
-import pickle
-import datetime
 import mockredis
 import unittest
 import logging
@@ -14,9 +12,8 @@ from mockredis import mock_strict_redis_client
 from phonon.client import Client
 from phonon.client.config import configure
 from phonon.client.config.node import Node
-from phonon.client.config import LOCAL_TZ
 from phonon.operation import Operation
-from phonon.exceptions import ReadError, EmptyResult
+from phonon.exceptions import ReadError, EmptyResult, WriteError
 
 from phonon import logger
 
@@ -336,27 +333,101 @@ class ClientTest(unittest.TestCase):
         d.set('biz', 'oof')
         d.set('biz.oplog', dop.to_str())
 
-
+    @mock_redis
     def test_write_oplog_succeeds(self):
-        pass
+        unique = uuid.uuid4()
 
-    def test_query_to_commit_writes_oplog_even_when_op_fails(self):
-        pass
+        node_a = Node(hostname='A', region='ec')
+        node_b = Node(hostname='B', region='ec')
+        node_c = Node(hostname='C', region='wc')
+        node_d = Node(hostname='D', region='wc')
 
-    def test_query_to_commit_raises_rollback_when_op_fails(self):
-        pass
+        a = self.client.get_connection(node_a)
+        b = self.client.get_connection(node_b)
+        c = self.client.get_connection(node_c)
+        d = self.client.get_connection(node_d)
 
-    def test_query_to_commit_raises_rollback_when_oplog_fails(self):
-        pass
+        assert self.client.set('biz', str(unique))
 
-    def test_query_to_commit_raises_rollback_when_unexpected_errors(self):
-        pass
+        aop = Operation.from_str(a.get('biz.oplog'))
+        bop = Operation.from_str(b.get('biz.oplog'))
+        cop = Operation.from_str(c.get('biz.oplog'))
+        dop = Operation.from_str(d.get('biz.oplog'))
 
-    def test_rollback_uses_latest_committed_when_multiiple_are_committed(self):
-        pass
+        assert aop.is_committed()
+        assert bop.is_committed()
+        assert cop.is_committed()
+        assert dop.is_committed()
 
+        assert aop._Operation__meta['pvalue'] is None
+        assert aop.call.kwargs == {}
+        assert aop.call.args == ('biz', str(unique))
+        assert aop.call.func == 'set'
+
+    @mock_redis
+    @mock.patch('phonon.client.Client._Client__write_oplog')
+    @mock.patch('phonon.client.Client._Client__rollback')
+    def test_query_to_commit_raises_rollback_when_oplog_fails(self, rollback, write_oplog):
+        write_oplog.side_effect = Exception("Failed to write oplog")
+        with self.assertRaisesRegexp(WriteError, 'Maximum retries exceeded.'):
+            a = self.client.set('a', 1)
+        rollback.assert_called_once()
+
+    @mock_redis
+    @mock.patch('phonon.client.Client.pipeline')
+    @mock.patch('phonon.client.Client._Client__rollback')
+    def test_query_to_commit_raises_rollback_when_op_fails(self, rollback, pipeline):
+        _ = mock.MagicMock()
+        _.execute = mock.MagicMock()
+        _.execute.side_effect = redis.exceptions.ConnectionError('Error writing to socket')
+        pipeline.return_value = _
+        with self.assertRaisesRegexp(WriteError, 'Maximum retries exceeded.'):
+            a = self.client.set('a', 1)
+        rollback.assert_called_once()
+
+    @mock_redis
+    @mock.patch('phonon.client.Client.pipeline')
+    @mock.patch('phonon.client.Client._Client__rollback')
+    def test_query_to_commit_raises_rollback_when_unexpected_errors(self, rollback, pipeline):
+        _ = mock.MagicMock()
+        _.execute = mock.MagicMock()
+        _.execute.return_value = [False, True]
+        pipeline.return_value = _
+
+        with self.assertRaisesRegexp(WriteError, 'Maximum retries exceeded.'):
+            a = self.client.set('a', 1)
+
+        rollback.assert_called_once()
+
+    @mock_redis
     def test_rollback_succeeds_when_none_are_committed(self):
-        pass
+        self.client.set('a', 1)
+
+        def _raise(*args, **kwargs):
+            raise Exception("Raised instead of committed.")
+
+        self.client._Client__commit = _raise
+
+        assert self.client.get('a') == '1'
+
+        with self.assertRaisesRegexp(Exception, 'Raised instead of committed.'):
+            self.client.set('a', 2)
+            # [TODO: It's not rolling back.]
+
+        node_a = Node(hostname='A', region='ec')
+        node_b = Node(hostname='B', region='ec')
+        node_c = Node(hostname='C', region='wc')
+        node_d = Node(hostname='D', region='wc')
+
+        a = self.client.get_connection(node_a)
+        b = self.client.get_connection(node_b)
+        c = self.client.get_connection(node_c)
+        d = self.client.get_connection(node_d)
+
+        assert a.get('a') == '1', a.get('a')
+        assert b.get('a') == '1', b.get('a')
+        assert c.get('a') == '1', c.get('a')
+        assert d.get('a') == '1', d.get('a')
 
     def test_rollback_succeeds_when_no_oplogs_exist(self):
         pass
