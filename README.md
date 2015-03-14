@@ -26,6 +26,12 @@ This package uses the standard `setup.py` approach:
 python setup.py test
 ```
 
+You can also run the tests using nose to generate a coverage report
+
+```
+nosetests --with-coverage 
+```
+
 # Getting Started
 
 ## Configuration
