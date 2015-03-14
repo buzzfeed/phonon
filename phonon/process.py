@@ -4,12 +4,8 @@ import time
 import threading
 import math
 
-<<<<<<< HEAD
-from phonon import get_logger, DisRefError, PHONON_NAMESPACE, TTL
-=======
-from phonon import get_logger, PHONON_NAMESPACE
+from phonon import get_logger, PHONON_NAMESPACE, TTL
 from phonon.exceptions import PhononError
->>>>>>> 65f16db... Added Node, Shard, Shards, phonon.configure, phonon.config_to_nodelist,
 from phonon.reference import Reference
 
 logger = get_logger(__name__)

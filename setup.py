@@ -15,8 +15,16 @@ setup(
     author_email='andrew.kelleher@buzzfeed.com, matthew.semanyshyn@buzzfeed.com',
     description='Provides easy, fault tolerant, distributed references with redis as a backend.',
     test_suite='test',
+    tests_require=[
+        'autopep8==1.1.1',
+        'mock==1.0.1',
+        'nose==1.2.1',
+        'coverage==3.7.1',
+    ],
     install_requires=[
         'pytz==2014.10',
+        'python-dateutil==2.4.1',
+        'redis==2.10.3',
     ],
     url='http://www.github.com/buzzfeed/phonon',
     classifiers=[

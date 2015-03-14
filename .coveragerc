@@ -5,17 +5,12 @@ include =
     phonon/update.py
     phonon/reference.py
     phonon/process.py
-<<<<<<< HEAD
-    phonon/__init__.py 
-    phonon/cache.py
-=======
     phonon/exceptions.py
     phonon/__init__.py 
     phonon/cache.py
     phonon/config/__init__.py
     phonon/config/node.py
     phonon/config/shard.py
->>>>>>> 65f16db... Added Node, Shard, Shards, phonon.configure, phonon.config_to_nodelist,
 [report]
 exclude_lines =
     pragma: no cover
@@ -26,4 +21,4 @@ exclude_lines =
     time.sleep
 precision = 2
 show_missing = True
-title = DisRef Coverage Report
+title = Phonon Coverage Report
