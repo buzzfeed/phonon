@@ -1218,9 +1218,9 @@ class LruCacheTest(unittest.TestCase):
         p = Process()
 
         a = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.005)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.005, init_cache=True)
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.005)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.005, init_cache=True)
 
         self.cache.set('456', a)
         time.sleep(.04)
@@ -1235,7 +1235,7 @@ class LruCacheTest(unittest.TestCase):
         assert get_return is None
 
         written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
-        assert written['doc'] == {"e": 10.0, "d": 8.0, "f": 3.0}
+        assert written['doc'] == {"e": 10.0, "d": 8.0, "f": 3.0}, written
 
         p.client.flushdb()
         p.stop()
@@ -1243,10 +1243,11 @@ class LruCacheTest(unittest.TestCase):
     def test_cache_handles_soft_sessions_async(self):
         p = Process()
         p.client.flushdb()
+        # [TODO: Why is this test failing when init_cache is False?]
         a = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.01)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.01, init_cache=True)
         b = UserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.01)
+                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.01, init_cache=True)
 
         self.async_cache.set('456', a)
         set_return = self.async_cache.set('456', b)
