@@ -10,7 +10,9 @@ from phonon.reference import Reference
 
 logger = get_logger(__name__)
 
+
 class Process(object):
+
     """
     Represents a process on which a particular resource lives, identified by a
     unique id automatically assigned to it.  It establishes a connection to
@@ -25,6 +27,7 @@ class Process(object):
     BLOCKING_TIMEOUT = 500
 
     class Lock(object):
+
         def __init__(self, process, lock_key, block=True):
             """
             :param Process process: The Process which is issuing this lock
@@ -42,14 +45,14 @@ class Process(object):
         def __enter__(self):
             blocking_timeout = self.__process.BLOCKING_TIMEOUT if self.block else 0
             self.__lock = self.client.lock(name=self.lock_key, timeout=TTL,
-                    sleep=self.__process.RETRY_SLEEP, blocking_timeout=blocking_timeout)
+                                           sleep=self.__process.RETRY_SLEEP, blocking_timeout=blocking_timeout)
 
             self.__lock.__enter__()
             if self.__lock.local.token:
                 return self.__lock
             else:
                 raise Process.AlreadyLocked(
-                        "Could not acquire a lock. Possible deadlock for key: {0}".format(self.lock_key))
+                    "Could not acquire a lock. Possible deadlock for key: {0}".format(self.lock_key))
 
         def __exit__(self, type, value, traceback):
             self.__lock.__exit__(type, value, traceback)
@@ -57,7 +60,7 @@ class Process(object):
     class AlreadyLocked(PhononError):
         pass
 
-    def __init__(self, process_ttl=int(0.5*TTL), host='localhost', port=6379, db=1, heartbeat_interval=10, recover_failed_processes=True):
+    def __init__(self, process_ttl=int(0.5 * TTL), host='localhost', port=6379, db=1, heartbeat_interval=10, recover_failed_processes=True):
         """
         :param process_ttl int: The time after which we consider a node to be
             unresponsive. This should be at most 1/2 the length of the TTL
@@ -85,7 +88,7 @@ class Process(object):
             if connection_kwargs['port'] != port or connection_kwargs['host'] != host or connection_kwargs['db'] != db:
                 logger.warning("An existing Redis connection exists: host {0}, port {1}, db {2}.  Your connection paramters\
                                 are being ignored."
-                                .format(connection_kwargs['port'], connection_kwargs['host'], connection_kwargs['db']))
+                               .format(connection_kwargs['port'], connection_kwargs['host'], connection_kwargs['db']))
 
         self.client = Process.client
         self.client.ping()
@@ -211,7 +214,7 @@ class Process(object):
         failed_pids = []
         heartbeats = self.client.hgetall(self.heartbeat_hash_name)
         for pid, heartbeat_time in heartbeats.items():
-            if int(heartbeat_time) <= int(time.time()) - 5*self.heartbeat_interval:
+            if int(heartbeat_time) <= int(time.time()) - 5 * self.heartbeat_interval:
                 failed_pids.append(pid)
 
         active_process_count = len(heartbeats) - len(failed_pids)
@@ -231,7 +234,7 @@ class Process(object):
                     elif active_process_count:
 
                         failed_process_registry = self.client.hkeys(failed_process_registry_key)
-                        recovering_references = failed_process_registry[0:int(math.ceil(float(len(failed_process_registry))/active_process_count))]
+                        recovering_references = failed_process_registry[0:int(math.ceil(float(len(failed_process_registry)) / active_process_count))]
 
                         for recovering_reference in recovering_references:
                             reference = self.create_reference(recovering_reference)
