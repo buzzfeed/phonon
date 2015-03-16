@@ -600,6 +600,7 @@ class UpdateTest(unittest.TestCase):
 
         assert c.ref.count() == 1, c.ref.count()
 
+        assert observed_spec == expected_spec
         assert observed_coll == expected_coll
         assert observed_db == expected_db
 
@@ -672,8 +673,6 @@ class UpdateTest(unittest.TestCase):
 
     def test_session_refreshes(self):
         p = Process()
-        client = p.client
-
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
                        spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, soft_session=5)
         b = UserUpdate(process=p, _id='12345', database='test', collection='user',
@@ -695,7 +694,7 @@ class UpdateTest(unittest.TestCase):
         p = Process()
         client = p.client
         a = UserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
         b = UserUpdate(process=p, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
@@ -706,7 +705,7 @@ class UpdateTest(unittest.TestCase):
         reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
         assert len(reflist) == 1
 
-        assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
+        assert a.ref.get_times_modified() == 2, a.ref.get_times_modified()
         a.force_expiry()
         a.end_session()
 
@@ -720,7 +719,7 @@ class UpdateTest(unittest.TestCase):
         observed_spec = target.get('spec')
         observed_coll = target.get('collection')
         observed_db = target.get('database')
-
+        # expect doc to be combination of a and b
         expected_doc = {u'a': 5.0, u'b': 7.0, u'c': 9.0}
         expected_spec = {u'_id': 123456}
         expected_coll = u'user'
@@ -768,7 +767,7 @@ class UpdateTest(unittest.TestCase):
         observed_spec = target.get('spec')
         observed_coll = target.get('collection')
         observed_db = target.get('database')
-
+        # expect doc to be combination of a and b
         expected_doc = {u'a': 5.0, u'b': 7.0, u'c': 9.0}
         expected_spec = {u'_id': 123456}
         expected_coll = u'user'
@@ -822,7 +821,7 @@ class UpdateTest(unittest.TestCase):
         observed_spec = target.get('spec')
         observed_coll = target.get('collection')
         observed_db = target.get('database')
-
+        # expect doc to be combination of a and b
         expected_doc = {u'a': 5.0, u'b': 7.0, u'c': 9.0}
         expected_spec = {u'_id': 123456}
         expected_coll = u'user'
@@ -844,7 +843,7 @@ class UpdateTest(unittest.TestCase):
         observed_spec = target.get('spec')
         observed_coll = target.get('collection')
         observed_db = target.get('database')
-
+        # expect doc to be only c
         expected_doc = {u'a': 7.0, u'b': 8.0, u'c': 9.0}
         expected_spec = {u'_id': 123456}
         expected_coll = u'user'
@@ -896,6 +895,7 @@ class UpdateTest(unittest.TestCase):
         observed_spec = target.get('spec')
         observed_coll = target.get('collection')
         observed_db = target.get('database')
+        # expect doc to be combination of a and b
         expected_doc = {u'a': 5.0, u'b': 7.0, u'c': 9.0}
         expected_spec = {u'_id': 123456}
         expected_coll = u'user'
@@ -917,7 +917,7 @@ class UpdateTest(unittest.TestCase):
         observed_spec = target.get('spec')
         observed_coll = target.get('collection')
         observed_db = target.get('database')
-
+        # expect doc to be only c
         expected_doc = {u'a': 7.0, u'b': 8.0, u'c': 9.0}
         expected_spec = {u'_id': 123456}
         expected_coll = u'user'
@@ -933,6 +933,84 @@ class UpdateTest(unittest.TestCase):
         assert observed_spec == expected_spec
 
         p.stop()
+
+    def test_force_expiry_caching_conflicts(self):
+        p = Process()
+        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+        c = UserUpdate(process=p, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
+
+        p2 = Process()
+        b = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
+        d = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 20., 'b': 21., 'c': 22.})
+
+        client = a._Update__process.client
+
+        assert a.ref.count() == 2, a.ref.count()
+        assert b.ref.count() == 2, b.ref.count()
+        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
+        assert len(reflist) == 2
+        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
+        assert len(reflist) == 2
+
+        b._Update__cache()
+        assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
+        a.force_expiry()
+        a.end_session()
+
+        assert a.ref.count() == 0, a.ref.count()
+        assert b.ref.count() == 0, b.ref.count()
+
+        target = json.loads(client.get("{0}.write".format(a.resource_id)) or "{}")
+        observed_doc = target.get('doc')
+        # expect doc to be combination of a and b
+        expected_doc = {u'a': 5.0, u'b': 7.0, u'c': 9.0}
+
+        for k, v in observed_doc.items():
+            assert expected_doc[k] == v, k
+        for k, v in expected_doc.items():
+            assert observed_doc[k] == v, k
+
+        e = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 30., 'b': 31., 'c': 32.})
+
+        c._Update__cache()
+        d.end_session()
+
+        target = json.loads(client.get("{0}.write".format(c.resource_id)) or "{}")
+        observed_doc = target.get('doc')
+        observed_spec = target.get('spec')
+        observed_coll = target.get('collection')
+        observed_db = target.get('database')
+        # expect doc to be combination of c and d
+        expected_doc = {u'a': 27.0, u'b': 29.0, u'c': 31.0}
+        expected_spec = {u'_id': 123456}
+        expected_coll = u'user'
+        expected_db = u'test'
+        for k, v in observed_doc.items():
+            assert expected_doc[k] == v, observed_doc
+        for k, v in expected_doc.items():
+            assert observed_doc[k] == v, observed_doc
+
+        assert observed_coll == expected_coll
+        assert observed_db == expected_db
+        assert observed_spec == expected_spec
+
+        e.end_session()
+        target = json.loads(client.get("{0}.write".format(e.resource_id)) or "{}")
+        observed_doc = target.get('doc')
+        # expect doc to be only e
+        expected_doc = {u'a': 30.0, u'b': 31.0, u'c': 32.0}
+        for k, v in observed_doc.items():
+            assert expected_doc[k] == v, observed_doc
+        for k, v in expected_doc.items():
+            assert observed_doc[k] == v, observed_doc
+
+        p.stop()
+        p2.stop()
 
 
 class LruCacheTest(unittest.TestCase):
@@ -1622,7 +1700,7 @@ class LruCacheTest(unittest.TestCase):
         p.stop()
         p2.stop()
 
-    def test_cache_ends_multiprocess_expired_sessions_async(self):
+    def test_cache_ends_multiprocess_expired_sessions_async2(self):
         p = Process()
         p2 = Process()
 
