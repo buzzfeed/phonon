@@ -707,7 +707,6 @@ class UpdateTest(unittest.TestCase):
 
         assert a.ref.get_times_modified() == 2, a.ref.get_times_modified()
         a.force_expiry()
-        a.end_session()
 
         assert a.ref.count() == 0, a.ref.count()
         assert client.get(a.resource_id) is None, client.get(a.resource_id)
@@ -755,7 +754,6 @@ class UpdateTest(unittest.TestCase):
 
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
-        a.end_session()
 
         assert a.ref.count() == 0, a.ref.count()
         assert client.get(a.resource_id) is None, client.get(a.resource_id)
@@ -785,7 +783,7 @@ class UpdateTest(unittest.TestCase):
         p.stop()
         p2.stop()
 
-    def test_force_expiry_mult_processes_caching(self):
+    def test_force_expiry_multiple_processes_caching(self):
         p = Process()
         p2 = Process()
         p3 = Process()
@@ -809,7 +807,6 @@ class UpdateTest(unittest.TestCase):
         b.end_session()
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
-        a.end_session()
 
         assert a.ref.count() == 0, a.ref.count()
         assert client.get(a.resource_id) is None, client.get(a.resource_id)
@@ -883,7 +880,6 @@ class UpdateTest(unittest.TestCase):
         b._Update__cache()
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
-        a.end_session()
 
         assert a.ref.count() == 0, a.ref.count()
         assert client.get(a.resource_id) is None, client.get(a.resource_id)
@@ -959,7 +955,6 @@ class UpdateTest(unittest.TestCase):
         b._Update__cache()
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
-        a.end_session()
 
         assert a.ref.count() == 0, a.ref.count()
         assert b.ref.count() == 0, b.ref.count()

@@ -91,8 +91,10 @@ class Update(object):
     def force_expiry(self):
         """
         Expires current and cached references related to current Update object
+        then ends the session.
         """
         self.ref.force_expiry = True
+        self.end_session()
 
     def end_session(self, block=True):
         """

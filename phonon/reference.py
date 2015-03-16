@@ -1,6 +1,5 @@
 import datetime
 import json
-import sys
 
 from dateutil import parser
 
@@ -219,16 +218,16 @@ class Reference(object):
             kwargs = {}
 
         client = self.__process.client
-        reflist = client.get(self.reflist_key)
-
-        if reflist is not None:
-            pids = json.loads(reflist)
-            if self.__process.id in pids:  # It won't be here if a dereference previously failed at the delete step.
-                del pids[self.__process.id]
 
         if self.force_expiry:
             pids = {}
         else:
+            reflist = client.get(self.reflist_key)
+
+            if reflist is not None:
+                pids = json.loads(reflist)
+                if self.__process.id in pids:  # It won't be here if a dereference previously failed at the delete step.
+                    del pids[self.__process.id]
             # Check for failed processes
             pids = self.remove_failed_processes(pids)
         rc = True
