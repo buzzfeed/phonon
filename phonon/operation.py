@@ -95,7 +95,7 @@ class Operation(object):
         :returns: A function name, args, and kwargs that undo this operation, assuming it was the last applied.
         """
         #[TODO: Refactor undo functions to take a phonon.client.Call]
-        return self.UNDO(self.__meta, self)
+        return self.UNDO(self.__meta)
 
 ADMIN = set([
     'bgrewriteaof',
@@ -113,74 +113,74 @@ class ReadOperation(Operation):
     pass
 
 
-def pre_hook(client, op):
-    print client, op
+def pre_hook(*args, **kwargs):
+    print args, kwargs
     return 3
 
 
 class Set(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.get(op.call.args[0])}
-    UNDO = lambda meta, op: ['set', meta['pvalue']]
+    UNDO = lambda op, meta: ['set', meta['pvalue']]
 
 
 class Del(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.get(op.call.args[0])}
-    UNDO = lambda meta, op: ['set', meta['pvalue']]
+    UNDO = lambda op, meta: ['set', meta['pvalue']]
 
 
 class SetNX(WriteOperation):
-    UNDO = lambda meta, op: ['del', op.call.args[0]]
+    UNDO = lambda op, meta: ['del', op.call.args[0]]
 
 
 class Incr(WriteOperation):
-    UNDO = lambda meta, op: ['decr', op.call.args[0]]
+    UNDO = lambda op, meta: ['decr', op.call.args[0]]
 
 
 class Decr(WriteOperation):
-    UNDO = lambda meta, op: ['incr', op.call.args[0]]
+    UNDO = lambda op, meta: ['incr', op.call.args[0]]
 
 
 class HSet(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.hget(op.call.args[0], op.call.args[1])}
-    UNDO = lambda meta, op: ['hset', op.call.args[0], op.call.args[1], meta['pvalue']]
+    UNDO = lambda op, meta: ['hset', op.call.args[0], op.call.args[1], meta['pvalue']]
 
 
 class HDel(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.hget(op.call.args[0], op.call.args[1])}
-    UNDO = lambda meta, op: ['hset', op.call.args[0], op.call.args[1], meta['pvalue']]
+    UNDO = lambda op, meta: ['hset', op.call.args[0], op.call.args[1], meta['pvalue']]
 
 
 class IncrByFloat(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.get(op.call.args[0])}
-    UNDO = lambda meta, op: ['set', op.call.args[0], meta['pvalue']]
+    UNDO = lambda op, meta: ['set', op.call.args[0], meta['pvalue']]
 
 
 class HIncrByFloat(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.hget(op.call.args[0], op.call.args[1])}
-    UNDO = lambda meta, op: ['set', op.call.args[0], op.call.args[1], meta['pvalue']]
+    UNDO = lambda op, meta: ['set', op.call.args[0], op.call.args[1], meta['pvalue']]
 
 
 class IncrBy(WriteOperation):
-    UNDO = lambda meta, op: ['decrby', op.call.args[0], op.call.args[1]]
+    UNDO = lambda op, meta: ['decrby', op.call.args[0], op.call.args[1]]
 
 
 class DecrBy(WriteOperation):
-    UNDO = lambda meta, op: ['incrby', op.call.args[0], op.call.args[1]]
+    UNDO = lambda op, meta: ['incrby', op.call.args[0], op.call.args[1]]
 
 
 class HIncrBy(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.hget(op.call.args[0], op.call.args[1])}
-    UNDO = lambda meta, op: ['set', op.call.args[0], op.call.args[1], meta['pvalue']]
+    UNDO = lambda op, meta: ['set', op.call.args[0], op.call.args[1], meta['pvalue']]
 
 
 class PExpire(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.pttl(op.call.args[0])}
-    UNDO = lambda meta, op: ['pexpire', op.call.args[0], meta['pvalue']]
+    UNDO = lambda op, meta: ['pexpire', op.call.args[0], meta['pvalue']]
 
 
 class Expire(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.pttl(op.call.args[0])}
-    UNDO = lambda meta, op: ['pexpire', op.call.args[0], meta['pvalue'] / 1000.]
+    UNDO = lambda op, meta: ['pexpire', op.call.args[0], meta['pvalue'] / 1000.]
 
 
 class PSetEx(WriteOperation):

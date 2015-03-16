@@ -141,10 +141,11 @@ class Client(object):
                         continue
                     undo = op.undo()
                     pipe = conn.pipeline()
-                    getattr(pipe, undo[0])(*undo[1:])
+                    getattr(pipe, undo[0])(*(keys + undo[1:]))
                     pipe.set("{0}.oplog".format(key), op.to_str())
                     pipe.execute()
                 except Exception, e:
+                    print e
                     logger.error("Error during rollback: {0}".format(e))
 
     def __write_oplog(self, pipeline, key, op):
@@ -168,9 +169,7 @@ class Client(object):
                     pipeline = self.pipeline(node)
                     self.__write_oplog(pipeline, key, op)
                     getattr(pipeline, op.call.func)(key, *args, **kwargs)
-                    print "Executing"
                     rc = pipeline.execute()  # [TODO: Check for possible failure/success values. Can they all be evaluated naively as truthy?]
-                    print "Succeeded"
                     if not all(rc):  # Must be unanimous on a shard
                         raise Rollback("Failed to add op to pipeline.")
         except Exception, e:
@@ -192,33 +191,30 @@ class Client(object):
     def __getattr__(self, func):
         def wrapper(*args, **kwargs):
             redis_call = Call(func, args, kwargs)
-            retries = 0
-            while retries < self.MAX_OPERATION_RETRIES:
+            try:
                 try:
-                    try:
-                        op = OPERATIONS[func](redis_call)
-                    except KeyError, e:
-                        raise NotImplemented('The operation, {0}, is not implemented. Please submit an issue to implement it!'.format(func))
+                    pending_op = OPERATIONS[func](redis_call)
+                except KeyError, e:
+                    raise NotImplemented('The operation, {0}, is not implemented. Please submit an issue to implement it!'.format(func))
 
-                    if isinstance(op, WriteOperation):
-                        meta = op.pre_hooks(self)
-                        agreement = self.__query_to_commit(op)
-                        return self.__commit(op)
-                    elif isinstance(op, ReadOperation):
-                        majority, inconsistencies = self.__get_consensus(op)
-                        if inconsistencies:
-                            self.__rollback(op, inconsistencies)  # Try to passively correct inconsistencies.
-                        return majority
-                except Rollback, e:
-                    logger.error("Caught error causing rollback: {0}".format(e))
-                    self.__rollback(op)
-                except NoMajority, e:
-                    logger.error("No majority found for key!")
-                except EmptyResult, e:
-                    logger.warning("No nodes reachable or conflicts encountered during read operation. Attempting to fix inconsistencies: {0}".format(e))
+                if isinstance(pending_op, WriteOperation):
+                    meta = pending_op.pre_hooks(self)
+                    agreement = self.__query_to_commit(pending_op)
+                    return self.__commit(pending_op)
+                elif isinstance(pending_op, ReadOperation):
+                    majority, inconsistencies = self.__get_consensus(pending_op)
+                    if inconsistencies:
+                        self.__rollback(pending_op, inconsistencies)  # Try to passively correct inconsistencies.
+                    return majority
+            except Rollback, e:
+                logger.error("Caught error causing rollback: {0}".format(e))
+                self.__rollback(pending_op)
+            except NoMajority, e:
+                logger.error("No majority found for key!")
+            except EmptyResult, e:
+                logger.warning("No nodes reachable or conflicts encountered during read operation. Attempting to fix inconsistencies: {0}".format(e))
 
-                retries += 1
-            if isinstance(op, WriteOperation):
+            if isinstance(pending_op, WriteOperation):
                 raise WriteError("Maximum retries exceeded.")
             raise ReadError("Maximum retries exceeded.")
 

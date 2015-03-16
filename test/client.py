@@ -13,7 +13,7 @@ from phonon.client import Client
 from phonon.client.config import configure
 from phonon.client.config.node import Node
 from phonon.operation import Operation
-from phonon.exceptions import ReadError, EmptyResult, WriteError
+from phonon.exceptions import ReadError, EmptyResult, WriteError, Rollback
 
 from phonon import logger
 
@@ -406,15 +406,14 @@ class ClientTest(unittest.TestCase):
         self.client.set('a', 1)
 
         def _raise(*args, **kwargs):
-            raise Exception("Raised instead of committed.")
+            raise Rollback("Raised instead of committed.")
 
         self.client._Client__commit = _raise
 
         assert self.client.get('a') == '1'
 
-        with self.assertRaisesRegexp(Exception, 'Raised instead of committed.'):
+        with self.assertRaisesRegexp(WriteError, 'Maximum retries exceeded.'):
             self.client.set('a', 2)
-            # [TODO: It's not rolling back.]
 
         node_a = Node(hostname='A', region='ec')
         node_b = Node(hostname='B', region='ec')
@@ -426,10 +425,18 @@ class ClientTest(unittest.TestCase):
         c = self.client.get_connection(node_c)
         d = self.client.get_connection(node_d)
 
+        op = Operation.from_str(a.get('a.oplog'))
+        assert op.call.kwargs == {}, op.call.kwargs
+        assert op.call.func == 'set', op.call.func
+        assert op.call.args == ('a', 1), op.call.args
+        assert op.is_committed()
+
         assert a.get('a') == '1', a.get('a')
         assert b.get('a') == '1', b.get('a')
         assert c.get('a') == '1', c.get('a')
         assert d.get('a') == '1', d.get('a')
+
+        assert False
 
     def test_rollback_succeeds_when_no_oplogs_exist(self):
         pass
