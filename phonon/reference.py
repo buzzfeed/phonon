@@ -227,7 +227,7 @@ class Reference(object):
                 del pids[self.__process.id]
 
         if self.force_expiry:
-            pids = []
+            pids = {}
         else:
             # Check for failed processes
             pids = self.remove_failed_processes(pids)

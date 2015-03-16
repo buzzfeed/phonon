@@ -88,6 +88,12 @@ class Update(object):
         return (current_time > self.hard_expiration or
                 current_time > self.soft_expiration)
 
+    def force_expiry(self):
+        """
+        Expires current and cached references related to current Update object
+        """
+        self.ref.force_expiry = True
+
     def end_session(self, block=True):
         """
         Indicate to this update its session has ended on the local machine.
