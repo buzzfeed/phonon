@@ -24,6 +24,7 @@ Contents:
    :maxdepth: 2
 
    phonon
+   client
    reference
    cache 
    exceptions

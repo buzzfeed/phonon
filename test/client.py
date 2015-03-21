@@ -466,7 +466,7 @@ class ClientTest(unittest.TestCase):
         def _raise(*args, **kwargs):
             raise Rollback("Raised instead of committed")
 
-        self.client.move_last_op = _raise
+        self.client._Client__move_last_op = _raise
         with self.assertRaisesRegexp(WriteError, "Maximum retries exceeded."):
             self.client.set('a', 2)
 
@@ -533,7 +533,7 @@ class ClientTest(unittest.TestCase):
 
         op = Operation.from_str(a.get('a.oplog'))
         with self.assertRaisesRegexp(Rollback, 'Failed to move last op.'):
-            self.client.move_last_op(op)
+            self.client._Client__move_last_op(op)
 
     @mock_redis
     def test_getattr_raises_not_implemented(self):

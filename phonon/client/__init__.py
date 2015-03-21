@@ -43,18 +43,43 @@ class Client(object):
     CONNECTION_INITIAL_WAIT = 0.5  # Seconds
 
     def __init__(self):
+        """
+        Initializes a client from some configuration of shards (set in config.SHARDS). This is a wrapper for :py:class:`redis.StrictRedis` providing strong consistency
+
+        :return:
+        """
         self.__router = Router(config.SHARDS)
         self.__connections = {}
 
     def has_connection(self, node):
+        """
+        Checks if the client has a connection to a particular node.
+
+        :param node: The node the client may or may not have a connection to.
+        :return: Whether or not there is a connection between the client and the node.
+        :rtype: bool
+        """
         return node.address in self.__connections
 
     def get_connection(self, node):
+        """
+        Checks for an existing connection or connects to a node if none exists.
+
+        :param node: The node to connect to.
+        :return: The connection to the node (an instance of redis.StrictRedis)
+        :rtype: redis.StrictRedis
+        """
         if not self.has_connection(node):
             self.__connect(node)
         return self.__connections[node.address]
 
     def __connect(self, node):
+        """
+        Connects to a node. Retries after waiting self.CONNECTION_INITIAL_WAIT, doubling each time. Quits after self.MAX_CONNECTION_RETRIES attempts.
+
+        :raises: ClientError after failing to connect
+        :param node: The node to connect to.
+        """
         wait_period = self.CONNECTION_INITIAL_WAIT
         retries = 0
         while retries < self.MAX_CONNECTION_RETRIES:
@@ -81,10 +106,10 @@ class Client(object):
     def __get_consensus(self, op):
         """
         Arrives at a consensus for a read, if possible.
-        :param op:
-        :param args:
-        :param kwargs:
-        :return:
+
+        :param op: The read operation to gather consensus for.
+        :rtype: tuple(mixed, list(int))
+        :returns: The majority result as the first positional element and a list of inconsistent nodes as the second.
         """
         votes = []
         keys, args, kwargs = op.keys()
@@ -128,6 +153,13 @@ class Client(object):
         raise NoMajority("No majority found on shard for key")
 
     def __rollback(self, pending_op, inconsistent=None):
+        """
+        Rolls back an operation that was attempted to be executed. Whatever the state is currently; the record will be put in it's last committed state.
+
+        :param pending_op: The operation that is currently being attempted by the client.
+        :param inconsistent: The indexes of any nodes containing inconsistent values.
+        :returns: None
+        """
         # TODO: Add expiration based on max expiry of existing records.
         print "Rollback called."
         keys, args, kwargs = pending_op.keys()
@@ -161,9 +193,22 @@ class Client(object):
                     logger.error("Error during rollback: {0}".format(e))
 
     def __write_oplog(self, pipeline, key, op):
+        """
+        Adds the oplog to the pipeline for the appropriate key.
+
+        :param pipeline: A pipeline about to be executed.
+        :param key: The key for the operation we're writing the oplog for.
+        :param op: The actual operation we're writing to the log.
+        """
         pipeline.set("{0}.oplog".format(key), op.to_str())
 
     def __ensure_committed(self, node, key):
+        """
+        Ensures an operation is committed corresponding to key on the node passed.
+        :param node: The node on which to check for the oplog.
+        :param key: The key the oplog corresponds to (without the .oplog suffix)
+        :raises: Rollback on error or if op is not committed.
+        """
         op = Operation.from_str(self.get_connection(node).get("{0}.oplog".format(key)))
         if not op:
             logger.info("No oplog for entry, must be initial set.")
@@ -172,8 +217,13 @@ class Client(object):
             raise Rollback("Found previously uncommitted entry.")
 
     def __query_to_commit(self, op):
+        """
+        Sends a "query to commit". This method executes the user's operation, and writes an oplog in the "uncommitted" state to every node on the shard.
+        :raises: Rollback if any operation fails.
+        :param op: The operation to execute.
+        """
         try:
-            self.move_last_op(op)
+            self.__move_last_op(op)
             keys, args, kwargs = op.keys()
             for key in keys:
                 nodes = self.__router.route(key)
@@ -188,6 +238,11 @@ class Client(object):
             raise Rollback("{0}".format(e))  # [TODO: Flag node causing rollback as PFAIL]
 
     def __commit(self, op):
+        """
+        Updates the oplogs for every node on the shard, putting them from the "uncommitted" to the "committed" state.
+        :param op: The operation to commit.
+        :raises: Rollback if anything causes an error or an operation fails.
+        """
         try:
             op.commit()
             keys, args, kwargs = op.keys()
@@ -200,7 +255,13 @@ class Client(object):
             op.rollback()
             raise Rollback("{0}".format(e))
 
-    def move_last_op(self, newop):
+    def __move_last_op(self, newop):
+        """
+        Moves the latest operation to the "last" slot to make way for the pending operation.
+
+        :param newop: The new operation we're moving the old operation to make way for.
+        :raises: Rollback on any sort of error.
+        """
         try:
             keys, args, kwargs = newop.keys()
             for key in keys:
