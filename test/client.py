@@ -123,14 +123,14 @@ class ClientTest(unittest.TestCase):
     def test_pipeline_connects_when_not_connected(self):
         a = Node('A', region='wc')
         assert not self.client.has_connection(a)
-        pipe = self.client.pipeline(a)
+        pipe = self.client._Client__pipeline(a)
         assert self.client.has_connection(a)
 
     @mock_redis
     def test_pipeline_returns_pipeline(self):
         a = Node('A', region='wc')
         assert not self.client.has_connection(a)
-        pipe = self.client.pipeline(a)
+        pipe = self.client._Client__pipeline(a)
         assert isinstance(pipe, (redis.client.StrictPipeline, mockredis.pipeline.MockRedisPipeline))
 
     @mock_redis
@@ -378,7 +378,7 @@ class ClientTest(unittest.TestCase):
         rollback.assert_called_once()
 
     @mock_redis
-    @mock.patch('phonon.client.Client.pipeline')
+    @mock.patch('phonon.client.Client._Client__pipeline')
     @mock.patch('phonon.client.Client._Client__rollback')
     def test_query_to_commit_raises_rollback_when_op_fails(self, rollback, pipeline):
         _ = mock.MagicMock()
@@ -390,7 +390,7 @@ class ClientTest(unittest.TestCase):
         rollback.assert_called_once()
 
     @mock_redis
-    @mock.patch('phonon.client.Client.pipeline')
+    @mock.patch('phonon.client.Client._Client__pipeline')
     @mock.patch('phonon.client.Client._Client__rollback')
     def test_query_to_commit_raises_rollback_when_unexpected_errors(self, rollback, pipeline):
         _ = mock.MagicMock()

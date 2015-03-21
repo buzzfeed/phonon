@@ -94,7 +94,7 @@ class Client(object):
                 wait_period *= 2
         raise ClientError("Failed to connect to {0}".format(node))
 
-    def pipeline(self, node):
+    def __pipeline(self, node):
         """
         :param node: The node to return a pipeline for.
         :type node: :py:class:`phonon.node.Node`
@@ -228,7 +228,7 @@ class Client(object):
             for key in keys:
                 nodes = self.__router.route(key)
                 for node in nodes:
-                    pipeline = self.pipeline(node)
+                    pipeline = self.__pipeline(node)
                     self.__write_oplog(pipeline, key, op)
                     getattr(pipeline, op.call.func)(key, *args, **kwargs)
                     rc = pipeline.execute()  # [TODO: Check for possible failure/success values. Can they all be evaluated naively as truthy?]
