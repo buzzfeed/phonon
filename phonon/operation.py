@@ -8,27 +8,6 @@ import pickle
 from phonon.client.config import LOCAL_TZ
 
 
-class Value(object):
-
-    def __init__(self, value, ttl):
-        """
-        Used to describe an existing value in redis. The value is whatever type it is on redis. The TTL is converted to expiration.
-
-        :param mixed value: The value at some key in redis.
-        :param ttl: The approximate time a key has to live in ms.
-        """
-        self.value = value
-        self.created_at = 1000.0 * time.mktime(datetime.datetime.now(LOCAL_TZ).timetuple())
-        self.expiration = (1000.0 * time.mktime(datetime.datetime.now(LOCAL_TZ).timetuple())) + ttl
-
-    def ms_exp(self):
-        """
-        :rtype: float
-        :return: The expiration time in milliseconds.
-        """
-        return self.expiration - (1000. * time.mktime(datetime.datetime.now(LOCAL_TZ).timetuple()))
-
-
 class Operation(object):
 
     def keys(self, *args, **kwargs):
@@ -111,12 +90,6 @@ class WriteOperation(Operation):
 
 class ReadOperation(Operation):
     pass
-
-
-def pre_hook(*args, **kwargs):
-    print args, kwargs
-    return 3
-
 
 class Set(WriteOperation):
     PRE_HOOKS = {'pvalue': lambda client, op: client.get(op.call.args[0])}

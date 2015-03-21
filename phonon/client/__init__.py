@@ -9,7 +9,7 @@ from socket import error as socket_error
 import redis
 from redis.exceptions import ConnectionError, TimeoutError
 
-from phonon.exceptions import EmptyResult, NoMajority, Rollback, ReadError, WriteError
+from phonon.exceptions import ClientError, EmptyResult, NoMajority, Rollback, ReadError, WriteError
 from phonon.client import config
 from phonon.client.router import Router
 from phonon.operation import OPERATIONS
@@ -62,11 +62,12 @@ class Client(object):
                 if retries > 0:
                     time.sleep(wait_period)
                 self.__connections[node.address] = redis.StrictRedis(host=node.address, port=node.port, db=0)
-                break
+                return None
             except (ConnectionError, TimeoutError, socket_error), e:
                 logger.warning("Failed to connect to {0}:{1}: {2}".format(node.address, node.port, e))
                 retries += 1
                 wait_period *= 2
+        raise ClientError("Failed to connect to {0}".format(node))
 
     def pipeline(self, node):
         """
@@ -210,7 +211,7 @@ class Client(object):
                     lastopkey = "{0}.oplog.last".format(key)
                     self.get_connection(node).rename(opkey, lastopkey)
         except Exception, e:
-            logger.error("Failed to move last op {0} -> {1} on {2}".format(opkey, lastopkey, node.address))
+            raise Rollback("Failed to move last op.")
 
     def __getattr__(self, func):
         def wrapper(*args, **kwargs):
@@ -219,7 +220,7 @@ class Client(object):
                 try:
                     pending_op = OPERATIONS[func](redis_call)
                 except KeyError, e:
-                    raise NotImplemented('The operation, {0}, is not implemented. Please submit a PR to implement it :)'.format(func))
+                    raise NotImplementedError('The operation, {0}, is not implemented. Please submit a PR to implement it :)'.format(func))
 
                 if isinstance(pending_op, WriteOperation):
                     meta = pending_op.pre_hooks(self)

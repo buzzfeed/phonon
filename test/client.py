@@ -4,12 +4,14 @@
 import mock
 import uuid
 import redis
+import socket
 import mockredis
 import unittest
 import logging
 from mockredis import mock_strict_redis_client
 
 from phonon.client import Client
+from phonon.exceptions import ClientError
 from phonon.client.config import configure
 from phonon.client.config.node import Node
 from phonon.operation import Operation
@@ -481,3 +483,73 @@ class ClientTest(unittest.TestCase):
         assert c.get('a') == '1', c.get('a')
         assert d.get('a') == '1', d.get('a')
         assert self.client.get('a') == '1'
+
+    @mock.patch('redis.StrictRedis.__init__', side_effect=socket.error("No connection"))
+    def test_connection_failure(self, sr):
+        self.client.CONNECTION_INITIAL_WAIT = 0.001
+        node_a = Node(hostname='A', region='ec')
+        with self.assertRaisesRegexp(ClientError, "Failed to connect to Node<A>"):
+            self.client.get_connection(node_a)
+
+    @mock_redis
+    def test_rollback_raised_when_ensure_committed_fails(self):
+        node_a = Node(hostname='A', region='wc')
+        a = self.client.get_connection(node_a)
+
+        self.client.set('a', 1)
+
+        op = Operation.from_str(a.get('a.oplog'))
+        op.rollback()
+        a.set('a.oplog', op.to_str())
+
+        with self.assertRaisesRegexp(Rollback, 'Found previously uncommitted entry.'):
+            self.client._Client__ensure_committed(node_a, 'a')
+
+    @mock_redis
+    def test_commit_rolls_back_on_error(self):
+        self.client.set('a', 1)
+
+        nodea = Node(hostname='A', region='wc')
+        a = self.client.get_connection(nodea)
+
+        def _raise(*args, **kwargs):
+            raise Exception('write oplog failure')
+        self.client._Client__write_oplog = _raise
+
+        op = Operation.from_str(a.get('a.oplog'))
+        with self.assertRaisesRegexp(Rollback, 'write oplog failure'):
+            self.client._Client__commit(op)
+
+    @mock_redis
+    def test_move_last_op_raises_rollback(self):
+        self.client.set('a', 1)
+
+        nodea = Node(hostname='A', region='wc')
+        a = self.client.get_connection(nodea)
+
+        def _raise(*args, **kwargs):
+            raise Exception('write oplog failure')
+        self.client._Client__ensure_committed = _raise
+
+        op = Operation.from_str(a.get('a.oplog'))
+        with self.assertRaisesRegexp(Rollback, 'Failed to move last op.'):
+            self.client.move_last_op(op)
+
+    @mock_redis
+    def test_getattr_raises_not_implemented(self):
+        with self.assertRaisesRegexp(NotImplementedError, 'The operation, foobar, is not implemented. Please submit a PR to implement it :\)'):
+            self.client.foobar()
+
+    @mock_redis
+    @mock.patch('phonon.client.logger.warning')
+    def test_logger_warns_when_empty_result(self, logger_warning):
+
+        def _raise(*args, **kwargs):
+            raise EmptyResult("foo")
+
+        self.client._Client__get_consensus = _raise
+
+        with self.assertRaisesRegexp(ReadError, 'Maximum retries exceeded.'):
+            self.client.get('a')
+
+        logger_warning.assert_called_with('No nodes reachable or conflicts encountered during read operation. Attempting to fix inconsistencies: foo')
