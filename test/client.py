@@ -425,26 +425,59 @@ class ClientTest(unittest.TestCase):
         c = self.client.get_connection(node_c)
         d = self.client.get_connection(node_d)
 
-        op = Operation.from_str(a.get('a.oplog'))
-        assert op.call.kwargs == {}, op.call.kwargs
-        assert op.call.func == 'set', op.call.func
-        assert op.call.args == ('a', 1), op.call.args
-        assert op.is_committed()
+        lastop = Operation.from_str(a.get('a.oplog'))
+        assert lastop.call.kwargs == {}, lastop.call.kwargs
+        assert lastop.call.func == 'set', lastop.call.func
+        assert lastop.call.args == ('a', 1), lastop.call.args
+        assert lastop.is_committed()
 
         assert a.get('a') == '1', a.get('a')
         assert b.get('a') == '1', b.get('a')
         assert c.get('a') == '1', c.get('a')
         assert d.get('a') == '1', d.get('a')
+        assert self.client.get('a') == '1'
 
-        assert False
-
+    @mock_redis
     def test_rollback_succeeds_when_no_oplogs_exist(self):
-        pass
+        self.client.set('a', 1)
 
-    def test_rollback_leaves_state_consistent_on_success(self):
-        pass
+        node_a = Node(hostname='A', region='ec')
+        node_b = Node(hostname='B', region='ec')
+        node_c = Node(hostname='C', region='wc')
+        node_d = Node(hostname='D', region='wc')
 
-    def test_rollback_does_all_it_can_on_failure(self):
-        pass
+        a = self.client.get_connection(node_a)
+        b = self.client.get_connection(node_b)
+        c = self.client.get_connection(node_c)
+        d = self.client.get_connection(node_d)
 
-    # [TODO: write tests for operations]
+        assert a.get('a') == '1'
+        assert b.get('a') == '1'
+        assert c.get('a') == '1'
+        assert d.get('a') == '1'
+
+        successful_op = Operation.from_str(a.get('a.oplog'))
+        assert successful_op.is_committed()
+        assert successful_op.call.args == ('a', 1)
+        assert not a.get('a.oplog.last')
+
+        def _raise(*args, **kwargs):
+            raise Rollback("Raised instead of committed")
+
+        self.client.move_last_op = _raise
+        with self.assertRaisesRegexp(WriteError, "Maximum retries exceeded."):
+            self.client.set('a', 2)
+
+        currop = Operation.from_str(a.get('a.oplog'))
+        assert currop.call.kwargs == {}, currop.call.kwargs
+        assert currop.call.func == 'set', currop.call.func
+        assert currop.call.args == ('a', 1), currop.call.args
+        assert currop.is_committed()
+
+        assert a.get('a.oplog.last') is None
+
+        assert a.get('a') == '1', a.get('a')
+        assert b.get('a') == '1', b.get('a')
+        assert c.get('a') == '1', c.get('a')
+        assert d.get('a') == '1', d.get('a')
+        assert self.client.get('a') == '1'

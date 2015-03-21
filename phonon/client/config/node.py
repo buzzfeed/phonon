@@ -36,6 +36,9 @@ class Node(object):
         if status is None:
             self.status = Node.UNASSIGNED
 
+    def __repr__(self):
+        return "Node<{0}>".format(self.address)
+
     def mark_as(self, status=None):
         """
         Marks a node as a particular status. Valid arguments are Node.INITIALIZING, Node.READY, or Node.STANDBY

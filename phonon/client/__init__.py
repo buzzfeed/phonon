@@ -126,26 +126,37 @@ class Client(object):
             return majority, [i for i, v in enumerate(votes) if v != majority]  # majority, inconsistent
         raise NoMajority("No majority found on shard for key")
 
-    def __rollback(self, op, inconsistent=None):
+    def __rollback(self, pending_op, inconsistent=None):
         # TODO: Add expiration based on max expiry of existing records.
-        keys, args, kwargs = op.keys()
+        print "Rollback called."
+        keys, args, kwargs = pending_op.keys()
         for key in keys:
             nodes = self.__router.route(key)
             for ind, node in enumerate(nodes):
                 try:
                     if inconsistent and ind not in inconsistent:
                         continue
+
                     conn = self.get_connection(node)
-                    op = Operation.from_str(conn.get("{0}.oplog".format(key)))
-                    if not op:
-                        continue
-                    undo = op.undo()
-                    pipe = conn.pipeline()
-                    getattr(pipe, undo[0])(*(keys + undo[1:]))
-                    pipe.set("{0}.oplog".format(key), op.to_str())
-                    pipe.execute()
+                    currop = Operation.from_str(conn.get('{0}.oplog'.format(key)))
+                    print "Getting operation for node", node
+                    if currop and not currop.is_committed():
+                        undo = currop.undo()
+                        pipe = conn.pipeline()
+
+                        # Execute inverse user operation.
+                        getattr(pipe, undo[0])(*(keys + undo[1:]))
+
+                        # If it exists; move the last committed operation into the current oplog slot.
+                        if conn.exists("{0}.oplog.last".format(key)):
+                            pipe.rename("{0}.oplog.last".format(key), "{0}.oplog".format(key))
+                        else:
+                            pipe.set("{0}.oplog".format(key), None) # No previous operation. Just clear it out.
+
+                        pipe.execute()
+                    else:
+                        print "No last op."
                 except Exception, e:
-                    print e
                     logger.error("Error during rollback: {0}".format(e))
 
     def __write_oplog(self, pipeline, key, op):
@@ -161,11 +172,11 @@ class Client(object):
 
     def __query_to_commit(self, op):
         try:
+            self.move_last_op(op)
             keys, args, kwargs = op.keys()
             for key in keys:
                 nodes = self.__router.route(key)
                 for node in nodes:
-                    self.__ensure_committed(node, key)
                     pipeline = self.pipeline(node)
                     self.__write_oplog(pipeline, key, op)
                     getattr(pipeline, op.call.func)(key, *args, **kwargs)
@@ -188,6 +199,19 @@ class Client(object):
             op.rollback()
             raise Rollback("{0}".format(e))
 
+    def move_last_op(self, newop):
+        try:
+            keys, args, kwargs = newop.keys()
+            for key in keys:
+                nodes = self.__router.route(key)
+                for node in nodes:
+                    self.__ensure_committed(node, key)
+                    opkey = "{0}.oplog".format(key)
+                    lastopkey = "{0}.oplog.last".format(key)
+                    self.get_connection(node).rename(opkey, lastopkey)
+        except Exception, e:
+            logger.error("Failed to move last op {0} -> {1} on {2}".format(opkey, lastopkey, node.address))
+
     def __getattr__(self, func):
         def wrapper(*args, **kwargs):
             redis_call = Call(func, args, kwargs)
@@ -195,7 +219,7 @@ class Client(object):
                 try:
                     pending_op = OPERATIONS[func](redis_call)
                 except KeyError, e:
-                    raise NotImplemented('The operation, {0}, is not implemented. Please submit an issue to implement it!'.format(func))
+                    raise NotImplemented('The operation, {0}, is not implemented. Please submit a PR to implement it :)'.format(func))
 
                 if isinstance(pending_op, WriteOperation):
                     meta = pending_op.pre_hooks(self)
