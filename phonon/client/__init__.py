@@ -151,7 +151,7 @@ class Client(object):
                         if conn.exists("{0}.oplog.last".format(key)):
                             pipe.rename("{0}.oplog.last".format(key), "{0}.oplog".format(key))
                         else:
-                            pipe.set("{0}.oplog".format(key), None) # No previous operation. Just clear it out.
+                            pipe.set("{0}.oplog".format(key), None)  # No previous operation. Just clear it out.
 
                         pipe.execute()
                     else:
