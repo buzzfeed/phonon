@@ -8,9 +8,15 @@ include =
     phonon/exceptions.py
     phonon/__init__.py 
     phonon/cache.py
-    phonon/config/__init__.py
-    phonon/config/node.py
-    phonon/config/shard.py
+    phonon/client/config/__init__.py
+    phonon/client/config/node.py
+    phonon/client/config/shard.py
+    phonon/client/config/router.py
+    phonon/client/__init__.py
+    phonon/logger.py
+    phonon/operation.py
+    phonon
+
 [report]
 exclude_lines =
     pragma: no cover
