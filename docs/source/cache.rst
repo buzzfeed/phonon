@@ -8,6 +8,5 @@ The cache helps manage when it is appropriate to end a session and when it is ap
 
 Module Reference
 ----------------
-
 .. automodule:: phonon.cache
     :members:
