@@ -103,19 +103,20 @@ class Update(object):
         used to write to redis or your database backend as efficiently as
         possible.
         """
-        with self.ref.lock(block=block):
-            if not self.ref.dereference(self.__execute):
-                if self.is_expired() or self.ref.force_expiry:
-                    # If this update has expired but other active references
-                    # to the resource still exist, we force this update to
-                    # execute. We reset the time_modified_key and cached data
-                    # to prevent any other processes from executing the same
-                    # data.
-                    self.__execute()
-                    self.__process.client.delete(self.ref.resource_key)
-                    self.__process.client.set(self.ref.times_modified_key, 0)
-                else:
-                    self.__cache()
+        if not self.ref.dereference(self.__execute, block=block):
+        	with self.ref.lock(block=block):
+	            if self.is_expired() or self.ref.force_expiry:
+	                # If this update has expired but other active references
+	                # to the resource still exist, we force this update to
+	                # execute. We reset the time_modified_key and cached data
+	                # to prevent any other processes from executing the same
+	                # data.
+	                self.__execute()
+	                self.__process.client.delete(self.ref.resource_key)
+	                self.__process.client.set(self.ref.times_modified_key, 0)
+	            else:
+	                self.__cache()
+
 
     def __getstate__(self):
         default_state = {

@@ -235,7 +235,7 @@ class Process(object):
                         for recovering_reference in recovering_references:
                             reference = self.create_reference(recovering_reference)
                             with reference.lock():
-                                reference.remove_failed_process(failed_pid)
+                                reference.nodelist.remove_node(failed_pid)
 
                         if self.remove_from_registry(recovering_references, failed_process_registry_key) == 0:
                             # No futher references to recover.
@@ -256,8 +256,7 @@ class Process(object):
             self.__heartbeat_timer.cancel()
 
         if self.__heartbeat_ref:
-            with self.__heartbeat_ref.lock():
-                self.__heartbeat_ref.dereference()
+            self.__heartbeat_ref.dereference()
 
     def __del__(self):
         self.stop()
