@@ -15,6 +15,7 @@ from phonon.reference import Reference
 from phonon.process import Process
 from phonon.update import Update
 from phonon.cache import LruCache
+from phonon.nodelist import Nodelist
 
 logging.disable(logging.CRITICAL)
 
@@ -178,12 +179,12 @@ class ProcessTest(unittest.TestCase):
         assert "12345" not in p1.client.hgetall(p1.heartbeat_hash_name)
 
         ref = p1.create_reference("r1")
-        ref_list = json.loads(p1.client.get(ref.reflist_key))
+        ref_list = ref.nodelist.get_all_nodes()
         assert "12345" not in ref_list
         assert p1.id in ref_list
 
         ref = p1.create_reference("r2")
-        ref_list = json.loads(p1.client.get(ref.reflist_key))
+        ref_list = ref.nodelist.get_all_nodes()
         assert "12345" not in ref_list
         assert p1.id in ref_list
 
@@ -251,6 +252,111 @@ class ProcessTest(unittest.TestCase):
         Process.BLOCKING_TIMEOUT = 500
         p1.stop()
 
+class NodelistTest(unittest.TestCase):
+
+    def setUp(self):
+        if hasattr(Process, "client"):
+            Process.client.flushdb()
+
+    def test_create_node_list(self):
+        p = Process()
+        nodelist = Nodelist(p, "key")
+        assert nodelist.nodelist_key == "phonon_key.nodelist"  
+        assert Process.client.hgetall(nodelist.nodelist_key) != {}
+
+        p.stop()
+
+    def test_refresh_session_refreshes_time(self):
+        p = Process()
+        nodelist = Nodelist(p, "key")
+        now = datetime.datetime.now(pytz.utc)
+        Process.client.hset(nodelist.nodelist_key, p.id, now)
+        nodelist.refresh_session()
+        updated_now = nodelist.get_last_updated(p.id)
+        assert isinstance(updated_now, datetime.datetime)
+        assert updated_now != now
+        p.stop()
+
+    def test_find_expired_nodes(self):
+        now = datetime.datetime.now(pytz.utc)
+        expired = now - datetime.timedelta(seconds=2 * TTL + 1)
+
+        p = Process()
+        nodelist = Nodelist(p, "key")
+
+        Process.client.hset(nodelist.nodelist_key, '1', now.isoformat())
+        Process.client.hset(nodelist.nodelist_key, '2', expired.isoformat())
+
+        target = nodelist.find_expired_nodes()
+        assert u'2' in target, target
+        assert u'1' not in target, target
+
+        p.stop()
+
+    def test_remove_expired_nodes(self):
+        now = datetime.datetime.now(pytz.utc)
+        expired = now - datetime.timedelta(seconds=2 * TTL + 1)
+
+        p = Process()
+        nodelist = Nodelist(p, "key")
+
+        Process.client.hset(nodelist.nodelist_key, '1', expired.isoformat())
+        Process.client.hset(nodelist.nodelist_key, '2', expired.isoformat())
+
+        nodes = nodelist.get_all_nodes()
+        assert '1' in nodes
+        assert '2' in nodes
+
+        nodelist.remove_expired_nodes()
+        nodes = nodelist.get_all_nodes()
+        assert '1' not in nodes
+        assert '2' not in nodes
+
+        p.stop()
+
+    def test_refreshed_node_not_deleted(self):
+        now = datetime.datetime.now(pytz.utc)
+        expired = now - datetime.timedelta(seconds=2 * TTL + 1)
+
+        p = Process()
+        nodelist = Nodelist(p, 'key')
+
+        Process.client.hset(nodelist.nodelist_key, '1', expired.isoformat())
+        Process.client.hset(nodelist.nodelist_key, '2', expired.isoformat())
+
+        expired = nodelist.find_expired_nodes()
+        assert u'2' in expired, expired
+        assert u'1' in expired, expired
+        Process.client.hset(nodelist.nodelist_key, '1', now.isoformat())
+
+        nodelist.refresh_session('1')
+        nodelist.remove_expired_nodes(expired)
+
+        assert nodelist.get_last_updated('1') is not None, nodelist.get_last_updated('1')
+        assert nodelist.get_last_updated('2') is None, nodelist.get_last_updated('2')
+
+        p.stop()
+
+    def test_remove_node(self):
+        p = Process()
+        nodelist = Nodelist(p, 'key')
+        nodelist.refresh_session('1')
+
+        nodes = nodelist.get_all_nodes()
+        assert '1' in nodes
+
+        nodelist.remove_node('1')
+        nodes = nodelist.get_all_nodes()
+        assert '1' not in nodes
+        p.stop()
+
+    def test_clear_nodelist(self):
+        p = Process()
+        nodelist = Nodelist(p, 'key')
+        nodes = nodelist.clear_nodelist()
+        nodes = nodelist.get_all_nodes()
+        assert nodes == {}
+        p.stop()
 
 class ReferenceTest(unittest.TestCase):
 
@@ -265,7 +371,7 @@ class ReferenceTest(unittest.TestCase):
     def test_init_creates_keys(self):
         p = Process()
         a = p.create_reference('foo')
-        assert a.reflist_key == 'phonon_foo.reflist'
+        assert a.nodelist.nodelist_key == 'phonon_foo.nodelist'
         assert a.resource_key == 'foo'
         assert a.times_modified_key == 'phonon_foo.times_modified'
         p.stop()
@@ -299,23 +405,68 @@ class ReferenceTest(unittest.TestCase):
 
         p.stop()
 
+    def test_nodelist_updates_multinodes(self):
+        p1 = Process()
+        p2 = Process()
+        p3 = Process()
+
+        import threading
+        t = threading.Thread(target=p1.create_reference, args=('foo',))
+        t2 = threading.Thread(target=p2.create_reference, args=('foo',))
+
+        t.start()
+        t2.start()
+        a = p3.create_reference("foo")
+
+        t.join()
+        t2.join()
+
+        nodes = a.nodelist.get_all_nodes()
+        assert p1.id in nodes
+        assert p2.id in nodes
+
+        p1.stop()
+        p2.stop()
+        p3.stop()
+
+    def test_nodelist_dereferences_multinodes(self):
+        p1 = Process()
+        p2 = Process()
+
+        a = p1.create_reference('foo')
+        b = p2.create_reference('foo')
+
+        import threading
+        t = threading.Thread(target=a.dereference)
+        t2 = threading.Thread(target=b.dereference)
+
+        t.start()
+        t2.start()
+
+        t.join()
+        t2.join()
+
+        nodes = a.nodelist.get_all_nodes()
+        assert nodes == {}
+
+        p1.stop()
+        p2.stop()
+
     def test_refresh_session_sets_time_initially(self):
         p = Process()
         a = p.create_reference('foo')
         a.refresh_session()
-        reflist = json.loads(p.client.get(a.reflist_key) or "{}")
-        assert len(reflist) == 1, "{0}: {1}".format(reflist, len(reflist))
-        assert isinstance(parser.parse(reflist[p.id]), datetime.datetime)
+        nodes = a.nodelist.get_all_nodes()
+        assert a.nodelist.count() == 1, "{0}: {1}".format(nodes, len(nodes))
+        assert isinstance(a.nodelist.get_last_updated(p.id), datetime.datetime)
         p.stop()
 
     def test_refresh_session_resets_time(self):
         p = Process()
         a = p.create_reference('foo')
-        reflist = json.loads(p.client.get(a.reflist_key) or "{}")
-        start = parser.parse(reflist[p.id])
+        start = a.nodelist.get_last_updated(p.id)
         a.refresh_session()
-        reflist = json.loads(p.client.get(a.reflist_key) or "{}")
-        end = parser.parse(reflist[p.id])
+        end = a.nodelist.get_last_updated(p.id)
         assert end > start
         assert isinstance(end, datetime.datetime)
         assert isinstance(start, datetime.datetime)
@@ -373,33 +524,17 @@ class ReferenceTest(unittest.TestCase):
 
         assert a.count() == b.count()
         assert b.count() == c.count()
-        assert c.count() == 3
+        assert c.count() == 3, c.count()
         a.dereference()
-        assert a.count() == 2
+        assert a.count() == 2, b.count()
         b.dereference()
-        assert a.count() == 1
+        assert a.count() == 1, a.count()
         c.dereference()
-        assert a.count() == 0, Reference.client.get(a.reflist_key)
+        assert a.count() == 0, a.nodelist.get_all_nodes()
 
         p.stop()
         p2.stop()
         p3.stop()
-
-    def test_remove_failed_processes(self):
-        now = datetime.datetime.now(pytz.utc)
-        expired = now - datetime.timedelta(seconds=2 * TTL + 1)
-        pids = {u'1': now.isoformat(),
-                u'2': expired.isoformat()}
-
-        p = Process()
-        a = p.create_reference('biz')
-
-        target = a.remove_failed_processes(pids)
-        assert u'2' not in target, target
-        assert u'1' in target, target
-        assert target[u'1'] == now.isoformat(), target
-
-        p.stop()
 
     def test_dereference_removes_pid_from_pids(self):
         p = Process()
@@ -408,14 +543,14 @@ class ReferenceTest(unittest.TestCase):
         p2 = Process()
         b = p2.create_reference('foo')
 
-        pids = json.loads(Process.client.get(a.reflist_key) or "{}")
+        pids = a.nodelist.get_all_nodes()
         assert a._Reference__process.id in pids
         assert b._Reference__process.id in pids
         a.dereference()
-        pids = json.loads(a._Reference__process.client.get(a.reflist_key) or "{}")
+        pids = a.nodelist.get_all_nodes()
         assert a._Reference__process.id not in pids
         b.dereference()
-        pids = json.loads(b._Reference__process.client.get(b.reflist_key) or "{}")
+        pids = a.nodelist.get_all_nodes()
         assert b._Reference__process.id not in pids
         assert len(pids) == 0
 
@@ -429,17 +564,17 @@ class ReferenceTest(unittest.TestCase):
         p2 = Process()
         b = p2.create_reference('foo')
 
-        pids = json.loads(Process.client.get(a.reflist_key) or "{}")
+        pids = a.nodelist.get_all_nodes()
         assert a._Reference__process.id in pids
         assert b._Reference__process.id in pids
         a.dereference()
-        pids = json.loads(a._Reference__process.client.get(a.reflist_key) or "{}")
+        pids = a.nodelist.get_all_nodes()
         assert a._Reference__process.id not in pids
         b.dereference()
-        pids = json.loads(b._Reference__process.client.get(b.reflist_key) or "{}")
+        pids = a.nodelist.get_all_nodes()
         assert b._Reference__process.id not in pids
         assert len(pids) == 0
-        assert Process.client.get(a.reflist_key) is None, Process.client.get(a.reflist_key)
+        assert a.nodelist.get_all_nodes() == {}, a.nodelist.get_all_nodes()
         assert Process.client.get(a.resource_key) is None, Process.client.get(a.resource_key)
         assert Process.client.get(a.times_modified_key) is None, Process.client.get(a.times_modified_key)
 
@@ -449,11 +584,11 @@ class ReferenceTest(unittest.TestCase):
     def test_dereference_handles_when_never_modified(self):
         p = Process()
         a = p.create_reference('foo')
-        pids = json.loads(a._Reference__process.client.get(a.reflist_key) or "{}")
+        pids = a.nodelist.get_all_nodes()
         assert len(pids) == 1, pids
 
         a.dereference()
-        pids = json.loads(a._Reference__process.client.get(a.reflist_key) or "{}")
+        pids = a.nodelist.get_all_nodes()
         assert len(pids) == 0, pids
 
         p.stop()
@@ -547,9 +682,9 @@ class UpdateTest(unittest.TestCase):
                        spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
 
         client = a._Update__process.client
-        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
-        assert len(reflist) == 1
-        assert a._Update__process.id in reflist
+        nodelist = a.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 1
+        assert a._Update__process.id in nodelist
 
         p.stop()
 
@@ -699,11 +834,11 @@ class UpdateTest(unittest.TestCase):
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
         assert a.ref.count() == 1, a.ref.count()
-        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
-        assert len(reflist) == 1
+        nodelist = a.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 1
         assert b.ref.count() == 1, b.ref.count()
-        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
-        assert len(reflist) == 1
+        nodelist = b.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 1
 
         assert a.ref.get_times_modified() == 2, a.ref.get_times_modified()
         a.force_expiry()
@@ -747,10 +882,10 @@ class UpdateTest(unittest.TestCase):
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
-        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
-        assert len(reflist) == 2
-        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
-        assert len(reflist) == 2
+        nodelist = a.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 2
+        nodelist = b.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 2
 
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
@@ -798,10 +933,10 @@ class UpdateTest(unittest.TestCase):
 
         assert a.ref.count() == 3, a.ref.count()
         assert b.ref.count() == 3, b.ref.count()
-        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
-        assert len(reflist) == 3
-        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
-        assert len(reflist) == 3
+        nodelist = a.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 3
+        nodelist = b.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 3
 
         b.cache()
         b.end_session()
@@ -872,10 +1007,10 @@ class UpdateTest(unittest.TestCase):
 
         assert a.ref.count() == 1, a.ref.count()
         assert b.ref.count() == 1, b.ref.count()
-        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
-        assert len(reflist) == 1
-        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
-        assert len(reflist) == 1
+        nodelist = a.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 1
+        nodelist = b.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 1
 
         b._Update__cache()
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
@@ -947,10 +1082,10 @@ class UpdateTest(unittest.TestCase):
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
-        reflist = json.loads(client.get(a.ref.reflist_key) or "{}")
-        assert len(reflist) == 2
-        reflist = json.loads(client.get(b.ref.reflist_key) or "{}")
-        assert len(reflist) == 2
+        nodelist = a.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 2
+        nodelist = b.ref.nodelist.get_all_nodes()
+        assert len(nodelist) == 2
 
         b._Update__cache()
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()

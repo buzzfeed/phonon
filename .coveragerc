@@ -5,6 +5,7 @@ include =
     phonon/update.py
     phonon/reference.py
     phonon/process.py
+    phonon/nodelist.py
     phonon/__init__.py 
     phonon/cache.py
 [report]

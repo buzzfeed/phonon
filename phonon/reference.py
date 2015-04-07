@@ -4,6 +4,7 @@ import json
 from dateutil import parser
 
 from phonon import get_logger, PHONON_NAMESPACE, LOCAL_TZ, TTL
+from phonon.nodelist import Nodelist
 
 logger = get_logger(__name__)
 
@@ -57,14 +58,12 @@ class Reference(object):
 
         self.resource_key = resource
         self.block = block
-        self.reflist_key = "{0}_{1}.reflist".format(PHONON_NAMESPACE, resource)
+        self.nodelist = Nodelist(process, resource)
         self.times_modified_key = "{0}_{1}.times_modified".format(PHONON_NAMESPACE, resource)
         self.force_expiry = False
         self.__lock = None
         self.__process = process
-
-        with self.lock(self.block):
-            self.refresh_session()
+        self.refresh_session()
 
     def lock(self, block=None):
         """
@@ -78,9 +77,7 @@ class Reference(object):
             lock.
         """
 
-        if block is None:
-            block = self.block
-
+        block = self.block if block is None else block
         return self.__process.lock(self.resource_key, block)
 
     def refresh_session(self):
@@ -90,27 +87,17 @@ class Reference(object):
 
         This method should only be called while the reference is locked.
         """
-        client = self.__process.client
-        reflist = {}
-        s_reflist = client.get(self.reflist_key)
+        expired_nodes = self.nodelist.find_expired_nodes()
+        if expired_nodes:
+            with self.lock():
+                self.nodelist.remove_expired_nodes(expired_nodes)
 
-        if s_reflist is not None:
-            try:
-                reflist = self.remove_failed_processes(json.loads(s_reflist))
-            except ValueError:
-                logger.error("Expected some json but got {0} when parsing reflist".format(s_reflist))
-                pass
-
-        reflist[self.__process.id] = datetime.datetime.now(LOCAL_TZ).isoformat()
-
-        client.set(self.reflist_key, json.dumps(reflist))
+        self.nodelist.refresh_session()
 
     def increment_times_modified(self):
         """
         Increments the number of times this resource has been modified by all
         processes.
-
-        This method should only be called while the reference is locked.
         """
         client = self.__process.client
         key = self.times_modified_key
@@ -122,8 +109,6 @@ class Reference(object):
 
     def get_times_modified(self):
         """
-        This method should only be called while the reference is locked.
-
         :returns: The total number of times increment_times_modified has been called for this resource by all processes.
         :rtype: int
         """
@@ -136,56 +121,12 @@ class Reference(object):
 
     def count(self):
         """
-        This method should only be called while the reference is locked.
-
         :returns: The total number of elements in the reference list.
         :rtype: int
         """
-        client = self.__process.client
-        reflist = client.get(self.reflist_key)
-        if reflist is None:
-            return 0
-        return len(json.loads(reflist))
+        return self.nodelist.count()
 
-    def remove_failed_process(self, pid):
-        """
-        Removes a particular process id from this reference's
-        reflist. This method should only be called while the reference is
-        locked.
-
-        :param pid: A string representing the process id to remove.
-
-        """
-        client = self.__process.client
-        s_reflist = client.get(self.reflist_key)
-        reflist = json.loads(s_reflist)
-
-        if pid in reflist:
-            del reflist[pid]
-            client.set(self.reflist_key, json.dumps(reflist))
-
-    def remove_failed_processes(self, pids):
-        """
-        When a process has held a reference for longer than its process_ttl
-        without refreshing it's session; this method will detect, log, and
-        prune that reference. This is a low-level method that doesn't do any
-        querying.
-
-        :param pids: A dictionary of str -> str keyed on the process id, with
-            the value being the last time the session was refreshed for that
-            process.
-        :type pids: dict( str, str )
-
-        :returns: The input dict of pids with expired pids removed.
-        :rtype: dict( str, str )
-        """
-        for pid, iso_date in pids.items():
-            last_updated = parser.parse(iso_date)
-            if (datetime.datetime.now(LOCAL_TZ) - last_updated) > datetime.timedelta(seconds=self.__process.process_ttl):
-                del pids[pid]
-        return pids
-
-    def dereference(self, callback=None, args=None, kwargs=None):
+    def dereference(self, callback=None, args=None, kwargs=None, block=None):
         """
         This method should only be called while the reference is locked.
 
@@ -219,30 +160,23 @@ class Reference(object):
 
         client = self.__process.client
 
+        rc = False
         if self.force_expiry:
-            pids = {}
-        else:
-            reflist = client.get(self.reflist_key)
+            rc = True
 
-            if reflist is not None:
-                pids = json.loads(reflist)
-                if self.__process.id in pids:  # It won't be here if a dereference previously failed at the delete step.
-                    del pids[self.__process.id]
-            # Check for failed processes
-            pids = self.remove_failed_processes(pids)
-        rc = True
-        if pids:
-            rc = False  # This is not the last process
+        with self.lock(block):
+            if not rc:
+                self.nodelist.remove_node(self.__process.id)
+                self.nodelist.remove_expired_nodes()
+                rc = self.nodelist.count() == 0
 
-        try:
-            val = json.dumps(pids)
-            client.set(self.reflist_key, val)
-            if callback is not None and rc:
-                callback(*args, **kwargs)
-        finally:
-            if rc:
-                client.delete(self.resource_key, self.reflist_key, self.times_modified_key)
+            try:
+                if callback is not None and rc:
+                    callback(*args, **kwargs)
+            finally:
+                if rc:
+                    client.delete(self.resource_key, self.nodelist.nodelist_key, self.times_modified_key)
 
-        client.hdel(self.__process.registry_key, self.resource_key)
+            client.hdel(self.__process.registry_key, self.resource_key)
 
         return rc
