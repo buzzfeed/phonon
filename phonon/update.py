@@ -1,10 +1,11 @@
 import pickle
 import datetime
+from collections import namedtuple
 
 from phonon import PHONON_NAMESPACE, LOCAL_TZ, TTL
 
 
-class Update(object):
+class BaseUpdate(object):
     """
     It's common for a database backend to be a bottleneck when data is
     aggregated for access through an API. This method is intended to be used in
@@ -34,7 +35,7 @@ class Update(object):
     """
 
     def __init__(self, process, _id, database='test', collection='test',
-                 spec=None, doc=None, init_cache=False, block=True, hard_session=TTL,
+                 spec=None, doc={}, init_cache=False, block=True, hard_session=TTL,
                  soft_session=.5*TTL):
         """
         :param Process process: The process object, unique to the node.
@@ -61,6 +62,7 @@ class Update(object):
         self.doc = doc
         self.collection = collection
         self.database = database
+        self.block = block
         self.__process = process
         self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
         self.init_cache = init_cache
@@ -104,19 +106,18 @@ class Update(object):
         possible.
         """
         if not self.ref.dereference(self.__execute, block=block):
-        	with self.ref.lock(block=block):
-	            if self.is_expired() or self.ref.force_expiry:
-	                # If this update has expired but other active references
-	                # to the resource still exist, we force this update to
-	                # execute. We reset the time_modified_key and cached data
-	                # to prevent any other processes from executing the same
-	                # data.
-	                self.__execute()
-	                self.__process.client.delete(self.ref.resource_key)
-	                self.__process.client.set(self.ref.times_modified_key, 0)
-	            else:
-	                self.__cache()
-
+            if self.is_expired():
+                # If this update has expired but other active references
+                # to the resource still exist, we force this update to
+                # execute. We reset the time_modified_key and cached data
+                # to prevent any other processes from executing the same
+                # data.
+                self.__execute()
+                with self.ref.lock(block=block):
+                    self._BaseUpdate__process.client.delete(self.ref.resource_key)
+                    self._BaseUpdate__process.client.set(self.ref.times_modified_key, 0)
+            else:
+                self._BaseUpdate__cache()
 
     def __getstate__(self):
         default_state = {
@@ -137,37 +138,30 @@ class Update(object):
         for k, v in state.items():
             setattr(self, k, v)
 
-    def __cache(self):
+    def __execute(self, block=None):
         """
         Handles deciding whether or not to get the resource from redis. Also
         implements merging cached records with this one (by implementing your
         `merge` method). Increments the number of times this record was
         modified if the cache method executes successfully (does not raise).
         """
-        if self.ref.get_times_modified() > 0:
-            pickled = self.__process.client.get(self.resource_id)
-            if pickled:
-                cached = pickle.loads(pickled)
-                self.merge(cached)
-        self.cache()
-        self.ref.increment_times_modified()
+        raise NotImplemented("Use the Update or ConflictFreeUpdate class instead.")
 
-        if self.init_cache:
-            self.__clear()
-
-    def __execute(self):
+    def __cache(self, block=None):
         """
         Handles deciding whether or not to get the resource from redis. Also
         implements merging cached records with this one (by implementing your
-        `merge` method). Calls your `execute` method to write the record to the
-        database. Recovering from a failed `execute` is up to you.
+        `merge` method). Increments the number of times this record was
+        modified if the cache method executes successfully (does not raise).
         """
-        if self.ref.get_times_modified() > 0:
-            pickled = self.__process.client.get(self.resource_id)
-            if pickled:
-                cached = pickle.loads(pickled)
-                self.merge(cached)
-        self.execute()
+        raise NotImplemented("Use the Update or ConflictFreeUpdate class instead.")
+
+    def __merge(self, block=None):
+        """
+        Handles how to extract a resource's data from redis and calls the user
+        defined `merge` method.
+        """
+        raise NotImplemented("Use the Update or ConflictFreeUpdate class instead.")
 
     def __clear(self):
         """
@@ -236,3 +230,117 @@ class Update(object):
         """
         raise NotImplemented("You must define a merge method that merges it's\
             argument with this object.")
+
+class Update(BaseUpdate):
+
+    def _BaseUpdate__merge(self):
+        pickled = self._BaseUpdate__process.client.get(self.resource_id)
+        if pickled:
+            cached = pickle.loads(pickled)
+            self.merge(cached)
+
+    def _BaseUpdate__cache(self, block=None):
+        if block is None:
+            block = self.block
+
+        with self.ref.lock(block=block):
+            if self.ref.get_times_modified() > 0:
+                self._BaseUpdate__merge()
+            self.cache()
+            self.ref.increment_times_modified()
+
+        if self.init_cache:
+            self._BaseUpdate__clear()
+
+    def _BaseUpdate__execute(self, block=None):
+        if block is None:
+            block = self.block
+
+        with self.ref.lock(block=block):
+            if self.ref.get_times_modified() > 0:
+                self._BaseUpdate__merge()
+            self.execute()
+
+class ConflictFreeUpdate(BaseUpdate):
+    """ 
+    Update class to be used when looking to minimize the locking of resources
+    during caching and execution of updates.  Accordingly, it should only be
+    used when you can ensure that you are only performing atomic operations on
+    both Redis and your database.
+
+    A default caching and merging method is provided which should be sufficient
+    when simply incrementing or decrementing fields. Otherwise, they must be
+    overwritten to suit your needs.
+    """
+
+    def get_cached_data(self):
+        """
+        Gets the cached data for the resource from redis and reconstructs it
+        from a flattened structure into its original form.
+        """
+        cached_data = self._BaseUpdate__process.client.hgetall(self.resource_id)
+        reconstructed_data = {}
+        for k, v in cached_data.items():
+            split = k.split(".")
+            field, subfield = split if len(split) == 2 else (split[0], None)
+            if subfield:
+                reconstructed_data.setdefault(field, {})[subfield] = v
+            else:
+                reconstructed_data[field] = v
+
+        empty_attributes = [k for k in self.__get_update_data().keys() if k not in reconstructed_data]
+        for k in empty_attributes:
+            reconstructed_data[k] = self.clear().get(k) or {}
+
+        return reconstructed_data
+
+    def cache(self):
+        """
+        Caches update data (stored within the doc or attributes specific in the
+        overwritten state function) to redis within a hash named for the
+        resource_id. Any attributes storing values in a dictionary are keyed by
+        the [attribute_name].[key_in_dictionary].
+        """
+        for field, data in (self.__get_update_data() or {}).items():
+            if type(data) == dict:
+                for k, v in data.items():
+                    self._BaseUpdate__process.client.hincrby(self.resource_id, "{}.{}".format(field, k), int(v))
+            else:
+                self._BaseUpdate__process.client.hincrby(self.resource_id, field, int(data))
+
+    def merge(self, other):
+        for field in self.__get_update_data().keys():
+            self_field = getattr(self, field)
+            other_field = getattr(other, field)
+            if type(self_field) == dict:
+                for k, v in (other_field or {}).items():
+                    if k not in self_field:
+                        self_field[k] = int(v)
+                    else:
+                        self_field[k] += int(v)
+            elif self_field and other_field:
+                setattr(self, field, int(self_field) + int(other_field))
+            elif other_field:
+                setattr(self, field, int(other_field))
+
+    def _BaseUpdate__merge(self):
+        UpdateDoc = namedtuple("UpdateDoc", self.__get_update_data().keys())
+        self.merge(UpdateDoc(**self.get_cached_data()))
+
+    def _BaseUpdate__cache(self, block=None):
+        self.cache()
+        self._BaseUpdate__clear()
+
+    def _BaseUpdate__execute(self, block=None):
+        self._BaseUpdate__merge()
+        self.execute()
+
+    def __get_update_data(self):
+        """
+        :rtype: dict
+        :returns: A dictionary of all data that is cached, combining any user
+            specified attributes with 'doc'
+        """
+        state_data = self.state().copy()
+        state_data.update({'doc': self.doc})
+        return state_data
