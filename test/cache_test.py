@@ -390,10 +390,9 @@ class LruCacheTest(unittest.TestCase):
         self.cache2.expire_all()
 
         retries = 100
-        while retries > 0 and not hasattr(a, 'called'):
+        while retries > 0 and not any([hasattr(u, 'called') for u in [a, c]]):
             retries -= 1
             time.sleep(0.01)
-
         written = json.loads(p.client.get('{0}.write'.format(a.resource_id)))
         assert written['doc'] == {"e": 20.0, "d": 16.0, "f": 10.0}
         assert written['spec'] == {"_id": 456}
@@ -408,19 +407,19 @@ class LruCacheTest(unittest.TestCase):
         p = Process()
         p.client.flushdb()
 
-        a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
-        b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
+        a = ConflictFreeUserUpdate(process=p, _id='457', database='test', collection='user',
+                       spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
+        b = ConflictFreeUserUpdate(process=p, _id='457', database='test', collection='user',
+                       spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
 
         self.async_cache.set('456', a)
         self.async_cache.set('456', b)
 
         p2 = Process()
-        c = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
-        d = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
+        c = ConflictFreeUserUpdate(process=p2, _id='457', database='test', collection='user',
+                       spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
+        d = ConflictFreeUserUpdate(process=p2, _id='457', database='test', collection='user',
+                       spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
 
         self.cache2 = LruCache(max_entries=5, async=True)
 
@@ -431,7 +430,7 @@ class LruCacheTest(unittest.TestCase):
         self.cache2.expire_all()
 
         retries = 100
-        while not all([hasattr(u, 'called') for u in [a, b, c, d]]) and retries > 0:
+        while not any([hasattr(u, 'called') for u in [a, b, c, d]]) and retries > 0:
             retries -= 1
             time.sleep(0.01)
 

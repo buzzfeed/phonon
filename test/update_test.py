@@ -28,7 +28,7 @@ class UserUpdate(Update):
             'collection': self.collection,
             'database': self.database
         }
-        client = self._BaseUpdate__process.client
+        client = self.process().client
         client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
 
@@ -53,7 +53,7 @@ class UserUpdateCustomField(Update):
             'collection': self.collection,
             'database': self.database
         }
-        client = self._BaseUpdate__process.client
+        client = self.process().client
         client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
     def state(self):
@@ -65,7 +65,8 @@ class UserUpdateCustomField(Update):
 class ConflictFreeUserUpdate(ConflictFreeUpdate):
 
     def execute(self):
-        client = self._BaseUpdate__process.client
+        self.called = True
+        client = self.process().client
         for key, val in self.doc.items():
             client.incr("{0}.write.{1}".format(self.resource_id, key), int(val))
 
@@ -77,7 +78,8 @@ class ConflictFreeUserUpdateCustomField(ConflictFreeUpdate):
         super(ConflictFreeUserUpdateCustomField, self).__init__(*args, **kwargs)
 
     def execute(self):
-        client = self._BaseUpdate__process.client
+        self.called = True
+        client = self.process().client
         for key, val in self.my_field.items():
             client.incr("{0}.write.{1}".format(self.resource_id, key), int(val))
         client.incr("{0}.write.{1}".format(self.resource_id, "my_field_2"), int(val))
@@ -105,10 +107,10 @@ class BaseUpdateTest(unittest.TestCase):
         a = UserUpdate(process=p, _id='123', database='test', collection='user',
                        spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
         nodelist = a.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 1
-        assert a._BaseUpdate__process.id in nodelist
+        assert a.process().id in nodelist
 
         p.stop()
 
@@ -137,7 +139,7 @@ class UpdateTest(unittest.TestCase):
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
                        spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
         a.cache()
-        client = a._BaseUpdate__process.client
+        client = a.process().client
         cached = pickle.loads(client.get(a.resource_id))
         state = cached.__getstate__()
         del state['resource_id']
@@ -154,7 +156,7 @@ class UpdateTest(unittest.TestCase):
         c = UserUpdate(process=p2, _id='456', database='test', collection='user',
                        spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
         assert client.get(b.resource_id) is None, client.get(b.resource_id)
 
         assert c.ref.count() == 2, c.ref.count()
@@ -303,7 +305,7 @@ class UpdateTest(unittest.TestCase):
         b = UserUpdate(process=p2, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
@@ -354,7 +356,7 @@ class UpdateTest(unittest.TestCase):
         c = UserUpdate(process=p3, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
 
         assert a.ref.count() == 3, a.ref.count()
         assert b.ref.count() == 3, b.ref.count()
@@ -428,7 +430,7 @@ class UpdateTest(unittest.TestCase):
         c = UserUpdate(process=p, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
 
         assert a.ref.count() == 1, a.ref.count()
         assert b.ref.count() == 1, b.ref.count()
@@ -437,7 +439,7 @@ class UpdateTest(unittest.TestCase):
         nodelist = b.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 1
 
-        b._BaseUpdate__cache()
+        b._Update__cache()
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
 
@@ -503,7 +505,7 @@ class UpdateTest(unittest.TestCase):
         d = UserUpdate(process=p2, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 20., 'b': 21., 'c': 22.})
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
@@ -512,7 +514,7 @@ class UpdateTest(unittest.TestCase):
         nodelist = b.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 2
 
-        b._BaseUpdate__cache()
+        b._Update__cache()
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
 
@@ -532,7 +534,7 @@ class UpdateTest(unittest.TestCase):
         e = UserUpdate(process=p2, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 30., 'b': 31., 'c': 32.})
 
-        c._BaseUpdate__cache()
+        c._Update__cache()
         d.end_session()
 
         target = json.loads(client.get("{0}.write".format(c.resource_id)) or "{}")
@@ -577,7 +579,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
 
         a = ConflictFreeUserUpdate(process=p, _id='12345', database='test', collection='user',
                        spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
-        client = a._BaseUpdate__process.client
+        client = a.process().client
         client.flushall()
         a.cache()
         data = a.get_cached_data()['doc']
@@ -695,7 +697,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         b = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
@@ -733,7 +735,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         c = ConflictFreeUserUpdate(process=p3, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
 
         assert a.ref.count() == 3, a.ref.count()
         assert b.ref.count() == 3, b.ref.count()
@@ -742,7 +744,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         nodelist = b.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 3
 
-        b._BaseUpdate__cache()
+        b._ConflictFreeUpdate__cache()
         b.end_session()
         a.force_expiry()
 
@@ -759,7 +761,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(a.resource_id, k)) == v
 
-        c._BaseUpdate__cache()
+        c._ConflictFreeUpdate__cache()
         c.end_session()
 
         merged_doc = {u'a': 7.0, u'b': 8.0, u'c': 9.0}
@@ -785,7 +787,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         c = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
 
         assert a.ref.count() == 1, a.ref.count()
         assert b.ref.count() == 1, b.ref.count()
@@ -794,7 +796,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         nodelist = b.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 1
 
-        b._BaseUpdate__cache()
+        b._ConflictFreeUpdate__cache()
         a.force_expiry()
         assert a.ref.count() == 0, a.ref.count()
         assert client.get(a.resource_id) is None, client.get(a.resource_id)
@@ -809,7 +811,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(a.resource_id, k)) == v
 
-        c._BaseUpdate__cache()
+        c._ConflictFreeUpdate__cache()
         c.end_session()
 
         merged_doc = {u'a': 7.0, u'b': 8.0, u'c': 9.0}
@@ -836,7 +838,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         d = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 20., 'b': 21., 'c': 22.})
 
-        client = a._BaseUpdate__process.client
+        client = a.process().client
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
@@ -845,7 +847,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         nodelist = b.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 2
 
-        b._BaseUpdate__cache()
+        b._ConflictFreeUpdate__cache()
         a.force_expiry()
 
         assert a.ref.count() == 0, a.ref.count()
@@ -863,7 +865,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         e = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 30., 'b': 31., 'c': 32.})
 
-        c._BaseUpdate__cache()
+        c._ConflictFreeUpdate__cache()
         d.end_session()
 
         merged_doc = {u'a': 27.0, u'b': 29.0, u'c': 31.0}
@@ -895,7 +897,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})        
 
         with a.ref.lock():
-            a._BaseUpdate__cache()
+            a._ConflictFreeUpdate__cache()
 
         cached = {u'a': "1", u'b': "2", u'c': "3"}
         for k, v in a.get_cached_data()['doc'].items():
@@ -917,9 +919,9 @@ class ConflictFreeUpdateTest(unittest.TestCase):
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
 
-        t = threading.Thread(target=a._BaseUpdate__cache)
-        t2 = threading.Thread(target=b._BaseUpdate__cache)
-        t3 = threading.Thread(target=c._BaseUpdate__cache)
+        t = threading.Thread(target=a._ConflictFreeUpdate__cache)
+        t2 = threading.Thread(target=b._ConflictFreeUpdate__cache)
+        t3 = threading.Thread(target=c._ConflictFreeUpdate__cache)
 
         t.start()
         t2.start()
@@ -943,7 +945,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})        
 
         with a.ref.lock():
-            a._BaseUpdate__execute()
+            a._ConflictFreeUpdate__execute()
 
         executed_doc = {u'a': "1", u'b': "2", u'c': "3"}
         for k, v in executed_doc.items():
@@ -963,7 +965,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
         with a.ref.lock():
-            a._BaseUpdate__cache()
+            a._ConflictFreeUpdate__cache()
 
         t = threading.Thread(target=a.end_session)
         t2 = threading.Thread(target=b.end_session)
