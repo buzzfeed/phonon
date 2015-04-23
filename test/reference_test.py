@@ -1,11 +1,8 @@
 import unittest
 import redis
 import datetime
-import time
-import logging
 import threading
 
-from phonon.reference import Reference
 from phonon.process import Process
 
 class ReferenceTest(unittest.TestCase):

@@ -1,7 +1,6 @@
 import unittest
 import datetime
 import pytz
-import time
 import logging
 
 from phonon import  TTL

@@ -1,7 +1,6 @@
 import unittest
 import json
 import datetime
-import pytz
 import time
 import logging
 
@@ -633,7 +632,7 @@ class LruCacheTest(unittest.TestCase):
         assert set_return is False
         executed_doc = {u'e': "10", u'd': "8", u'f': "3"}
         for k, v in executed_doc.items():
-            assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) == None
+            assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) is None
 
         time.sleep(.04)
         get_return = self.cache.get('456')
@@ -693,7 +692,7 @@ class LruCacheTest(unittest.TestCase):
         assert set_return is False
         executed_doc = {u'e': "10", u'd': "8", u'f': "3"}
         for k, v in executed_doc.items():
-            assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) == None
+            assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) is None
 
 
         get_return = self.async_cache.get('456')

@@ -320,4 +320,4 @@ class WidgetUpdate(ConflictFreeUpdate):
         o.save()
 ```
 
-Any data added to the state of the update will be cached along with the doc.
+Any data added to the state of the update will be cached along with the doc.  In addition to the `cache` method, the `cache_state` method can be overwritten to specify how to handle that data.
