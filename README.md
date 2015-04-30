@@ -305,3 +305,17 @@ class FooUpdate(BaseUpdate):
     Model = Foo
 
 ```
+
+## Conflict Free Updates
+The normal `Update` class will handle the locking of resources to ensure that all data is safely executed and cached without loss.  However, in certain cases where only atomic operations are being performed on Redis and your database, this locking becomes unncessary and may affect performance. For these situation, your update classes should use the `ConflictFreeUpdate` as its base instead of `Update`.
+
+A default caching and merging method is provided which should be sufficient when simply incrementing or decrementing fields. Otherwise, they must be overwritten to suit your needs.  In the example for Widget aggregation above, the update class could simply become:
+
+```python
+class WidgetUpdate(ConflictFreeUpdate):
+    def execute(self):
+        o = self.Model.objects.get_or_create(**self.spec)
+        for k, v in self.doc.items():
+            setattr(o, k, F(k) + v)
+        o.save()
+```
