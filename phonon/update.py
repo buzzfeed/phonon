@@ -1,10 +1,11 @@
 import pickle
 import datetime
+from collections import namedtuple
 
 from phonon import PHONON_NAMESPACE, LOCAL_TZ, TTL
 
 
-class Update(object):
+class BaseUpdate(object):
     """
     It's common for a database backend to be a bottleneck when data is
     aggregated for access through an API. This method is intended to be used in
@@ -58,9 +59,10 @@ class Update(object):
         self.resource_id = '{0}_Update.{1}.{2}'.format(PHONON_NAMESPACE, collection, _id)
 
         self.spec = spec
-        self.doc = doc
+        self.doc = doc if doc is not None else {}
         self.collection = collection
         self.database = database
+        self.block = block
         self.__process = process
         self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
         self.init_cache = init_cache
@@ -68,8 +70,9 @@ class Update(object):
         self.soft_session = soft_session
         self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.soft_session)
         self.hard_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.hard_session)
+
         if self.init_cache:
-            self.__cache()
+            self._cache()
 
     def process(self):
         """ Get underlying process variable
@@ -102,21 +105,21 @@ class Update(object):
         The implementation of your cache, merge, and execute methods will be
         used to write to redis or your database backend as efficiently as
         possible.
-        """
-        if not self.ref.dereference(self.__execute, block=block):
-        	with self.ref.lock(block=block):
-	            if self.is_expired() or self.ref.force_expiry:
-	                # If this update has expired but other active references
-	                # to the resource still exist, we force this update to
-	                # execute. We reset the time_modified_key and cached data
-	                # to prevent any other processes from executing the same
-	                # data.
-	                self.__execute()
-	                self.__process.client.delete(self.ref.resource_key)
-	                self.__process.client.set(self.ref.times_modified_key, 0)
-	            else:
-	                self.__cache()
 
+        """
+        if not self.ref.dereference(self._execute, block=block):
+            if self.is_expired():
+                # If this update has expired but other active references
+                # to the resource still exist, we force this update to
+                # execute. We reset the time_modified_key and cached data
+                # to prevent any other processes from executing the same
+                # data.
+                self._execute()
+                with self.ref.lock(block=block):
+                    self.__process.client.delete(self.ref.resource_key)
+                    self.__process.client.set(self.ref.times_modified_key, 0)
+            else:
+                self._cache()
 
     def __getstate__(self):
         default_state = {
@@ -137,52 +140,13 @@ class Update(object):
         for k, v in state.items():
             setattr(self, k, v)
 
-    def __cache(self):
-        """
-        Handles deciding whether or not to get the resource from redis. Also
-        implements merging cached records with this one (by implementing your
-        `merge` method). Increments the number of times this record was
-        modified if the cache method executes successfully (does not raise).
-        """
-        if self.ref.get_times_modified() > 0:
-            pickled = self.__process.client.get(self.resource_id)
-            if pickled:
-                cached = pickle.loads(pickled)
-                self.merge(cached)
-        self.cache()
-        self.ref.increment_times_modified()
-
-        if self.init_cache:
-            self.__clear()
-
-    def __execute(self):
-        """
-        Handles deciding whether or not to get the resource from redis. Also
-        implements merging cached records with this one (by implementing your
-        `merge` method). Calls your `execute` method to write the record to the
-        database. Recovering from a failed `execute` is up to you.
-        """
-        if self.ref.get_times_modified() > 0:
-            pickled = self.__process.client.get(self.resource_id)
-            if pickled:
-                cached = pickle.loads(pickled)
-                self.merge(cached)
-        self.execute()
-
-    def __clear(self):
+    def _clear(self):
         """
         If using failure recovery features (ie init_cache), after caching, data
         that will be executed to the database will be removed from the local update.
         """
         self.doc = {}
         self.__setstate__(self.clear())
-
-    def cache(self):
-        """
-        This method caches the update to redis.
-        """
-        self.__process.client.set(self.resource_id,
-                                  pickle.dumps(self))
 
     def state(self):
         """
@@ -220,7 +184,7 @@ class Update(object):
         should occur internally since this method will have the complete record
         to be written.
         """
-        raise NotImplemented("You must define a execute method that writes this\
+        raise NotImplementedError("You must define a execute method that writes this\
             record to the database. Locking and such will be handled for you")
 
     def merge(self, update):
@@ -234,5 +198,134 @@ class Update(object):
         :param dict update: Exactly what you wrote in your `cache` method, but
             already parsed from JSON into a python `dict`.
         """
-        raise NotImplemented("You must define a merge method that merges it's\
+        raise NotImplementedError("You must define a merge method that merges it's\
             argument with this object.")
+
+class Update(BaseUpdate):
+
+
+    def cache(self):
+        """
+        This method caches the update to redis.
+        """
+        self.process().client.set(self.resource_id,
+                                  pickle.dumps(self))
+
+    def _merge(self):
+        """
+        Handles how to extract a resource's data from redis and calls the user
+        defined `merge` method.
+        """
+        pickled = self.process().client.get(self.resource_id)
+        if pickled:
+            cached = pickle.loads(pickled)
+            self.merge(cached)
+
+    def _cache(self, block=None):
+        """
+        Handles deciding whether or not to get the resource from redis. Also
+        implements merging cached records with this one (by implementing your
+        `merge` method). Increments the number of times this record was
+        modified if the cache method executes successfully (does not raise).
+        """
+        if block is None:
+            block = self.block
+
+        with self.ref.lock(block=block):
+            if self.ref.get_times_modified() > 0:
+                self._merge()
+            self.cache()
+            self.ref.increment_times_modified()
+
+        if self.init_cache:
+            self._clear()
+
+    def _execute(self, block=None):
+        """
+        Handles deciding whether or not to get the resource from redis. Also
+        implements merging cached records with this one (by implementing your
+        `merge` method). Increments the number of times this record was
+        modified if the cache method executes successfully (does not raise).
+        """
+        if block is None:
+            block = self.block
+
+        with self.ref.lock(block=block):
+            if self.ref.get_times_modified() > 0:
+                self._merge()
+            self.execute()
+
+
+class ConflictFreeUpdate(BaseUpdate):
+    """ 
+    Update class to be used when looking to minimize the locking of resources
+    during caching and execution of updates.  Accordingly, it should only be
+    used when you can ensure that you are only performing atomic operations on
+    both Redis and your database.
+
+    A default caching and merging method is provided which should be sufficient
+    when simply incrementing or decrementing fields. Otherwise, they must be
+    overwritten to suit your needs.
+    """
+
+    def __get_cached_doc(self):
+        """
+        :rtype: dict
+        :returns: The update's doc pulled from redis.
+        """
+        return self.process().client.hgetall(self.resource_id)
+
+    def cache(self):
+        """
+        Caches the update's doc to redis within a hash named for the
+        resource_id.
+
+        This implementation should be used where data is only being
+        incremented or decremented.  Otherwise, overwrite to suit your
+        specific needs.
+        """
+        for k, v in self.doc.items():
+            self.process().client.hincrby(self.resource_id, k, int(v))
+
+    def merge(self, other):
+        """
+        Handles how to merge one Update with another.
+
+        This implementation should be used where data is only being
+        incremented or decremented.  Otherwise, overwrite to suit your
+        specific needs.
+        """
+        for k, v in (other.doc or {}).items():
+            if k not in self.doc:
+                self.doc[k] = int(v)
+            else:
+                self.doc[k] += int(v)
+
+    def _merge(self):
+        """
+        Handles how to extract a resource's data from redis and calls the user
+        defined `merge` method.
+        """
+        UpdateDoc = namedtuple("UpdateDoc", "doc")
+        update_doc = UpdateDoc(self.__get_cached_doc())
+        self.merge(update_doc)
+
+    def _cache(self, block=None):
+        """
+        Handles deciding whether or not to get the resource from redis. Also
+        implements merging cached records with this one (by implementing your
+        `merge` method). Increments the number of times this record was
+        modified if the cache method executes successfully (does not raise).
+        """
+        self.cache()
+        self._clear()
+
+    def _execute(self, block=None):
+        """
+        Handles deciding whether or not to get the resource from redis. Also
+        implements merging cached records with this one (by implementing your
+        `merge` method). Increments the number of times this record was
+        modified if the cache method executes successfully (does not raise).
+        """
+        self._merge()
+        self.execute()

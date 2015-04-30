@@ -61,7 +61,6 @@ class Reference(object):
         self.nodelist = Nodelist(process, resource)
         self.times_modified_key = "{0}_{1}.times_modified".format(PHONON_NAMESPACE, resource)
         self.force_expiry = False
-        self.__lock = None
         self.__process = process
         self.refresh_session()
 
@@ -170,10 +169,11 @@ class Reference(object):
                 self.nodelist.remove_expired_nodes()
                 rc = self.nodelist.count() == 0
 
-            try:
-                if callback is not None and rc:
-                    callback(*args, **kwargs)
-            finally:
+        try:
+            if callback is not None and rc:
+                callback(*args, **kwargs)
+        finally:
+            with self.lock(block):
                 if rc:
                     client.delete(self.resource_key, self.nodelist.nodelist_key, self.times_modified_key)
 
