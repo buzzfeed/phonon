@@ -70,27 +70,6 @@ class ConflictFreeUserUpdate(ConflictFreeUpdate):
         for key, val in self.doc.items():
             client.incr("{0}.write.{1}".format(self.resource_id, key), int(val))
 
-class ConflictFreeUserUpdateCustomField(ConflictFreeUpdate):
-
-    def __init__(self, my_field, my_field_2, *args, **kwargs):
-        self.my_field = my_field
-        self.my_field_2 = my_field_2
-        super(ConflictFreeUserUpdateCustomField, self).__init__(*args, **kwargs)
-
-    def execute(self):
-        self.called = True
-        client = self.process().client
-        for key, val in self.my_field.items():
-            client.incr("{0}.write.{1}".format(self.resource_id, key), int(val))
-        client.incr("{0}.write.{1}".format(self.resource_id, "my_field_2"), int(val))
-
-    def state(self):
-        return {"my_field": self.my_field, "my_field_2" : self.my_field_2}
-
-    def clear(self):
-        return {"my_field": {}, "my_field_2": 0}
-
-
 class BaseUpdateTest(unittest.TestCase):
 
     def test_process(self):

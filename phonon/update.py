@@ -268,93 +268,46 @@ class ConflictFreeUpdate(BaseUpdate):
     overwritten to suit your needs.
     """
 
-    def __get_cached_state(self):
-        """
-        :rtype: dict
-        :returns: The update's state pulled from redis.
-        """
-        cached_state = self.process().client.hgetall(self.resource_id)
-        state = {}
-        for k, v in cached_state.items():
-            field, subfield = k.split('.') if '.' in k else (k, None)
-            if field == "doc":
-                continue
-            if subfield:
-                state.setdefault(field, {})[subfield] = v
-            else:
-                state[field] = v
-
-        empty_attributes = [k for k in self.state().keys() if k not in state]
-        for k in empty_attributes:
-            state[k] = self.clear().get(k) or {}
-
-        return state
-
     def __get_cached_doc(self):
         """
         :rtype: dict
         :returns: The update's doc pulled from redis.
         """
-        return dict({(k.split(".")[1], v) for k, v in self.process().client.hgetall(self.resource_id).items() if "doc." in k})
+        return self.process().client.hgetall(self.resource_id)
 
     def cache(self):
         """
         Caches the update's doc to redis within a hash named for the
-        resource_id and keyed by `doc.[key_name]`
+        resource_id.
 
         This implementation should be used where data is only being
-        incremented or decremented.  Otherwise, overwrite to suite your
+        incremented or decremented.  Otherwise, overwrite to suit your
         specific needs.
         """
         for k, v in self.doc.items():
-            self.process().client.hincrby(self.resource_id, "{}.{}".format("doc", k), int(v))
-
-    def cache_state(self):
-        """
-        Caches the update's state to redis within a hash named for the
-        resource_id. Any attributes storing values in a dictionary are keyed by
-        the `[attribute_name].[key_in_dictionary]`.
-
-        This implementation should be used where data is only being
-        incremented or decremented.  Otherwise, overwrite to suite your
-        specific needs.
-        """
-        for field, data in self.state().items():
-            if type(data) == dict:
-                for k, v in data.items():
-                    self.process().client.hincrby(self.resource_id, "{}.{}".format(field, k), int(v))
-            else:
-                self.process().client.hincrby(self.resource_id, field, int(data))
+            self.process().client.hincrby(self.resource_id, k, int(v))
 
     def merge(self, other):
         """
         Handles how to merge one Update with another.
 
         This implementation should be used where data is only being
-        incremented or decremented.  Otherwise, overwrite to suite your
+        incremented or decremented.  Otherwise, overwrite to suit your
         specific needs.
         """
-        for field in ["doc"]+self.state().keys():
-            self_field = getattr(self, field)
-            other_field = getattr(other, field)
-            if type(self_field) == dict:
-                for k, v in (other_field or {}).items():
-                    if k not in self_field:
-                        self_field[k] = int(v)
-                    else:
-                        self_field[k] += int(v)
-            elif self_field and other_field:
-                setattr(self, field, int(self_field) + int(other_field))
-            elif other_field:
-                setattr(self, field, int(other_field))
+        for k, v in (other.doc or {}).items():
+            if k not in self.doc:
+                self.doc[k] = int(v)
+            else:
+                self.doc[k] += int(v)
 
     def _merge(self):
         """
         Handles how to extract a resource's data from redis and calls the user
         defined `merge` method.
         """
-        UpdateDoc = namedtuple("UpdateDoc", ["doc"]+self.state().keys())
-        update_doc = UpdateDoc(self.__get_cached_doc(), **self.__get_cached_state())
+        UpdateDoc = namedtuple("UpdateDoc", "doc")
+        update_doc = UpdateDoc(self.__get_cached_doc())
         self.merge(update_doc)
 
     def _cache(self, block=None):
@@ -365,7 +318,6 @@ class ConflictFreeUpdate(BaseUpdate):
         modified if the cache method executes successfully (does not raise).
         """
         self.cache()
-        self.cache_state()
         self._clear()
 
     def _execute(self, block=None):

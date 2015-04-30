@@ -8,7 +8,7 @@ from phonon import LOCAL_TZ
 from phonon.process import Process
 from phonon.cache import LruCache
 
-from test.update_test import UserUpdate, UserUpdateCustomField, ConflictFreeUserUpdate, ConflictFreeUserUpdateCustomField
+from test.update_test import UserUpdate, UserUpdateCustomField, ConflictFreeUserUpdate
 
 logging.disable(logging.CRITICAL)
 
@@ -477,40 +477,6 @@ class LruCacheTest(unittest.TestCase):
         p.stop()
         p2.stop()
 
-    def test_init_cache_merges_properly_with_custom_fields_conflict_free(self):
-        p = Process()
-        p.client.flushdb()
-
-        a = ConflictFreeUserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 1.}, my_field_2=1, process=p, _id='456',
-                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-        b = ConflictFreeUserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 2.}, my_field_2=1, process=p, _id='456',
-                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-
-        self.cache.set('456', a)
-        self.cache.set('456', b)
-
-        p2 = Process()
-        c = ConflictFreeUserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 3.}, my_field_2=1, process=p2, _id='456',
-                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-        d = ConflictFreeUserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 4.}, my_field_2=1, process=p2, _id='456',
-                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-
-        self.cache2 = LruCache(max_entries=5)
-
-        self.cache2.set('456', c)
-        self.cache2.set('456', d)
-
-        self.cache.expire_all()
-        self.cache2.expire_all()
-
-        executed_doc = {u'e': "20", u'd': "16", u'f': "10"}
-        for k, v in executed_doc.items():
-            assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) == v
-
-        p.client.flushdb()
-        p.stop()
-        p2.stop()
-
     def test_init_cache_merges_properly_with_custom_fields_async(self):
         p = Process()
         p.client.flushdb()
@@ -548,45 +514,6 @@ class LruCacheTest(unittest.TestCase):
         assert written['collection'] == "user"
         assert written['database'] == "test"
 
-        p.client.flushdb()
-        p.stop()
-        p2.stop()
-
-    def test_init_cache_merges_properly_with_custom_fields_async_conflict_free(self):
-        p = Process()
-        p.client.flushdb()
-
-        a = ConflictFreeUserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 1.}, my_field_2=1, process=p, _id='456',
-                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-        b = ConflictFreeUserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 2.}, my_field_2=1, process=p, _id='456',
-                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-
-        self.async_cache.set('456', a)
-        self.async_cache.set('456', b)
-
-        p2 = Process()
-        c = ConflictFreeUserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 3.}, my_field_2=1, process=p2, _id='456',
-                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-        d = ConflictFreeUserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 4.}, my_field_2=1, process=p2, _id='456',
-                                  database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-
-        self.cache2 = LruCache(max_entries=5, async=True)
-
-        self.cache2.set('456', c)
-        self.cache2.set('456', d)
-
-        self.async_cache.expire_all()
-        self.cache2.expire_all()
-
-        retries = 100
-        while not all([hasattr(u, 'called') for u in [a, b, c, d]]) and retries > 0:
-            retries -= 1
-            time.sleep(0.01)
-
-        executed_doc = {u'e': "20", u'd': "16", u'f': "10"}
-        for k, v in executed_doc.items():
-            assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) == v
-        
         p.client.flushdb()
         p.stop()
         p2.stop()
