@@ -91,12 +91,22 @@ class BaseUpdate(object):
         return (current_time > self.hard_expiration or
                 current_time > self.soft_expiration)
 
+    def set_force_expiry(self, force_expire=True):
+        """
+        Updates the force_expiry setting on the Update's reference without
+        explicitly ending the session.
+
+        :param bool force_expire: Value to set force_expiry to.
+
+        """
+        self.ref.force_expiry = force_expire
+
     def force_expiry(self):
         """
         Expires current and cached references related to current Update object
         then ends the session.
         """
-        self.ref.force_expiry = True
+        self.set_force_expiry()
         self.end_session()
 
     def end_session(self, block=True):
