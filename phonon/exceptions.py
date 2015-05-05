@@ -27,3 +27,6 @@ class NoMajority(ReadError):
 
 class Rollback(WriteError):
     pass
+
+class AlreadyLocked(PhononError):
+    pass

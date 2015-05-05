@@ -23,7 +23,7 @@ class Operation(object):
         return pickle.loads(zlib.decompress(s))
 
     KEYS = keys
-    PRE_HOOKS = lambda: {}
+    PRE_HOOKS = {}
 
     def __init__(self, call):
         """
@@ -169,6 +169,10 @@ class BLPop(WriteOperation):
     KEYS = lambda *args, **kwargs: args if not isinstance(args[-1], int) else args[:-1]
     UNDO = lambda pv, rv, *keys_then_timeout: None
 
+class Lock(WriteOperation):
+    KEYS = lambda *args, **kwargs: tuple([kwargs['name'], args, {k: v for k, v in kwargs.items() if k != 'name'}])
+    UNDO = lambda op, meta : ['del'] + op.keys()[0]
+
 OPERATIONS = {
     # High priority
     'set': Set, 'del': Del, 'setnx': SetNX, 'incr': Incr,
@@ -176,7 +180,7 @@ OPERATIONS = {
     'incrbyfloat': IncrByFloat, 'hincrbyfloat': HIncrByFloat,
     'incrby': IncrBy, 'decrby': DecrBy, 'hincrby': HIncrBy,
     'pexpire': PExpire, 'expire': Expire, 'psetex': PSetEx,
-    'append': Append, 'blpop': BLPop,
+    'append': Append, 'blpop': BLPop, 'lock': Lock,
 
     'hsetnx': WriteOperation,
     'zincrby': WriteOperation,

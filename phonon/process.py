@@ -6,8 +6,8 @@ import math
 
 from phonon.logger import get_logger
 from phonon.client.config import PHONON_NAMESPACE, TTL
-from phonon.exceptions import PhononError
 from phonon.reference import Reference
+from phonon.lock import Lock
 
 logger = get_logger(__name__)
 
@@ -23,43 +23,6 @@ class Process(object):
     When finished with the process instance, call the stop function.
 
     """
-
-    RETRY_SLEEP = 0.5    # Second
-    BLOCKING_TIMEOUT = 500
-
-    class Lock(object):
-
-        def __init__(self, process, lock_key, block=True):
-            """
-            :param Process process: The Process which is issuing this lock
-            :param str lock_key: The key at which to acquire a lock
-            :param bool block: Optional. Whether or not to block when
-                establishing the lock.
-            """
-            self.block = block
-            lock_key = "{0}.lock".format(lock_key)
-            self.lock_key = lock_key
-            self.client = process.client
-            self.__process = process
-            self.__lock = None
-
-        def __enter__(self):
-            blocking_timeout = self.__process.BLOCKING_TIMEOUT if self.block else 0
-            self.__lock = self.client.lock(name=self.lock_key, timeout=TTL,
-                                           sleep=self.__process.RETRY_SLEEP, blocking_timeout=blocking_timeout)
-
-            self.__lock.__enter__()
-            if self.__lock.local.token:
-                return self.__lock
-            else:
-                raise Process.AlreadyLocked(
-                    "Could not acquire a lock. Possible deadlock for key: {0}".format(self.lock_key))
-
-        def __exit__(self, type, value, traceback):
-            self.__lock.__exit__(type, value, traceback)
-
-    class AlreadyLocked(PhononError):
-        pass
 
     def __init__(self, process_ttl=int(0.5 * TTL), host='localhost', port=6379, db=1, heartbeat_interval=10, recover_failed_processes=True):
         """
@@ -175,7 +138,7 @@ class Process(object):
         :param bool block: Optional. Whether or not to block when establishing
             lock.
         """
-        return Process.Lock(self, lock_key, block)
+        return Lock(self, lock_key, block)
 
     def __get_registry_key(self, pid):
         """
