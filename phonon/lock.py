@@ -2,6 +2,7 @@ from phonon.exceptions import AlreadyLocked
 from phonon.client.config import TTL
 from phonon.client import Client
 
+
 class Lock(object):
 
     TIMEOUT = 500

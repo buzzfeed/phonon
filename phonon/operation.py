@@ -169,9 +169,10 @@ class BLPop(WriteOperation):
     KEYS = lambda *args, **kwargs: args if not isinstance(args[-1], int) else args[:-1]
     UNDO = lambda pv, rv, *keys_then_timeout: None
 
+
 class Lock(WriteOperation):
     KEYS = lambda *args, **kwargs: tuple([kwargs['name'], args, {k: v for k, v in kwargs.items() if k != 'name'}])
-    UNDO = lambda op, meta : ['del'] + op.keys()[0]
+    UNDO = lambda op, meta: ['del'] + op.keys()[0]
 
 OPERATIONS = {
     # High priority

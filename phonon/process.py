@@ -65,7 +65,7 @@ class Process(object):
     def create_reference(self, resource, block=True):
         """
         Creates a Reference object owned by this process. This function is not
-        thread-safe. 
+        thread-safe.
 
         :param bool block: Optional. Whether or not to block when establishing
             locks.
