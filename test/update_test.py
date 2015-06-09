@@ -231,6 +231,21 @@ class UpdateTest(unittest.TestCase):
 
         p.stop()
 
+    def test_set_force_expiry(self):
+        p = Process()
+        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
+
+        assert a.ref.force_expiry is False
+        a.set_force_expiry()
+        assert a.ref.force_expiry is True
+        a.set_force_expiry(False)
+        assert a.ref.force_expiry is False
+        a.set_force_expiry(True)
+        assert a.ref.force_expiry is True
+
+        p.stop()
+
     def test_force_expiry_init_cache(self):
         p = Process()
         client = p.client
