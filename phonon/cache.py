@@ -170,7 +170,7 @@ class LruCache(object):
                 expired.end_session()
         except Exception, e:
             self.__failed = expired
-            raise e
+            logger.exception(e)
         self.__size -= 1
 
     def expire_all(self):
