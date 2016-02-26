@@ -9,7 +9,7 @@ except ImportError:
 
 setup(
     name='phonon',
-    version='0.9',
+    version='0.10',
     packages=find_packages(),
     author='Andrew Kelleher, Matthew Semanyshyn',
     author_email='andrew.kelleher@buzzfeed.com, matthew.semanyshyn@buzzfeed.com',

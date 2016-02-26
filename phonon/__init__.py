@@ -4,12 +4,14 @@ import sys
 
 LOCAL_TZ = pytz.utc
 PHONON_NAMESPACE = "phonon"
-TTL = 30 * 60 
+TTL = 30 * 60
 
 SYSLOG_LEVEL = logging.WARNING
 
-class DisRefError(Exception):
+
+class PhononError(Exception):
     pass
+
 
 def get_logger(name, log_level=SYSLOG_LEVEL):
     l = logging.getLogger(name)

@@ -1,8 +1,8 @@
 import pickle
-import datetime
+import time
 from collections import namedtuple
 
-from phonon import PHONON_NAMESPACE, LOCAL_TZ, TTL
+from phonon import PHONON_NAMESPACE, TTL
 
 
 class BaseUpdate(object):
@@ -36,7 +36,7 @@ class BaseUpdate(object):
 
     def __init__(self, process, _id, database='test', collection='test',
                  spec=None, doc=None, init_cache=False, block=True, hard_session=TTL,
-                 soft_session=.5*TTL):
+                 soft_session=.5 * TTL):
         """
         :param Process process: The process object, unique to the node.
         :param str _id: The primary key for the record in the database.
@@ -68,8 +68,8 @@ class BaseUpdate(object):
         self.init_cache = init_cache
         self.hard_session = hard_session
         self.soft_session = soft_session
-        self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.soft_session)
-        self.hard_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.hard_session)
+        self.soft_expiration = int((time.time() + self.soft_session) * 1000.)
+        self.hard_expiration = int((time.time() + self.hard_session) * 1000.)
 
         if self.init_cache:
             self._cache()
@@ -87,7 +87,7 @@ class BaseUpdate(object):
         :rtype: bool
         :returns: Indicates whether the Update has passed its expiration
         """
-        current_time = datetime.datetime.now(LOCAL_TZ)
+        current_time = int(time.time() * 1000.)
         return (current_time > self.hard_expiration or
                 current_time > self.soft_expiration)
 
@@ -183,7 +183,7 @@ class BaseUpdate(object):
         :param dict update: Exactly what you wrote in your `cache` method, but
             already parsed from JSON into a python `dict`.
         """
-        self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(seconds=self.soft_session)
+        self.soft_expiration = int((time.time() + self.soft_session) * 1000.)
         self.merge(update)
 
     def execute(self):
@@ -211,8 +211,8 @@ class BaseUpdate(object):
         raise NotImplementedError("You must define a merge method that merges it's\
             argument with this object.")
 
-class Update(BaseUpdate):
 
+class Update(BaseUpdate):
 
     def cache(self):
         """

@@ -1,13 +1,16 @@
 import unittest
-import datetime
-import pytz
+import time
 import logging
 
-from phonon import  TTL
+from phonon import TTL
 from phonon.process import Process
 from phonon.nodelist import Nodelist
 
 logging.disable(logging.CRITICAL)
+
+
+def s_to_ms(s):
+    return int(1000. * s)
 
 
 class NodelistTest(unittest.TestCase):
@@ -19,7 +22,7 @@ class NodelistTest(unittest.TestCase):
     def test_create_node_list(self):
         p = Process()
         nodelist = Nodelist(p, "key")
-        assert nodelist.nodelist_key == "phonon_key.nodelist"  
+        assert nodelist.nodelist_key == "phonon_key.nodelist"
         assert Process.client.hgetall(nodelist.nodelist_key) != {}
 
         p.stop()
@@ -27,23 +30,24 @@ class NodelistTest(unittest.TestCase):
     def test_refresh_session_refreshes_time(self):
         p = Process()
         nodelist = Nodelist(p, "key")
-        now = datetime.datetime.now(pytz.utc)
+        now = int(time.time() * 1000.)
         Process.client.hset(nodelist.nodelist_key, p.id, now)
+        time.sleep(0.01)
         nodelist.refresh_session()
         updated_now = nodelist.get_last_updated(p.id)
-        assert isinstance(updated_now, datetime.datetime)
-        assert updated_now != now
+        assert isinstance(updated_now, int)
+        assert updated_now != now, "{} == {}".format(updated_now, now)
         p.stop()
 
     def test_find_expired_nodes(self):
-        now = datetime.datetime.now(pytz.utc)
-        expired = now - datetime.timedelta(seconds=2 * TTL + 1)
+        now = int(time.time() * 1000.)
+        expired = now - s_to_ms(2 * TTL + 1)
 
         p = Process()
         nodelist = Nodelist(p, "key")
 
-        Process.client.hset(nodelist.nodelist_key, '1', now.isoformat())
-        Process.client.hset(nodelist.nodelist_key, '2', expired.isoformat())
+        Process.client.hset(nodelist.nodelist_key, '1', now)
+        Process.client.hset(nodelist.nodelist_key, '2', expired)
 
         target = nodelist.find_expired_nodes()
         assert u'2' in target, target
@@ -52,14 +56,14 @@ class NodelistTest(unittest.TestCase):
         p.stop()
 
     def test_remove_expired_nodes(self):
-        now = datetime.datetime.now(pytz.utc)
-        expired = now - datetime.timedelta(seconds=2 * TTL + 1)
+        now = int(time.time() * 1000.)
+        expired = now - s_to_ms(2 * TTL + 1)
 
         p = Process()
         nodelist = Nodelist(p, "key")
 
-        Process.client.hset(nodelist.nodelist_key, '1', expired.isoformat())
-        Process.client.hset(nodelist.nodelist_key, '2', expired.isoformat())
+        Process.client.hset(nodelist.nodelist_key, '1', expired)
+        Process.client.hset(nodelist.nodelist_key, '2', expired)
 
         nodes = nodelist.get_all_nodes()
         assert '1' in nodes
@@ -73,19 +77,19 @@ class NodelistTest(unittest.TestCase):
         p.stop()
 
     def test_refreshed_node_not_deleted(self):
-        now = datetime.datetime.now(pytz.utc)
-        expired = now - datetime.timedelta(seconds=2 * TTL + 1)
+        now = int(time.time() * 1000.)
+        expired = now - s_to_ms(2 * TTL + 1)
 
         p = Process()
         nodelist = Nodelist(p, 'key')
 
-        Process.client.hset(nodelist.nodelist_key, '1', expired.isoformat())
-        Process.client.hset(nodelist.nodelist_key, '2', expired.isoformat())
+        Process.client.hset(nodelist.nodelist_key, '1', expired)
+        Process.client.hset(nodelist.nodelist_key, '2', expired)
 
         expired = nodelist.find_expired_nodes()
         assert u'2' in expired, expired
         assert u'1' in expired, expired
-        Process.client.hset(nodelist.nodelist_key, '1', now.isoformat())
+        Process.client.hset(nodelist.nodelist_key, '1', now)
 
         nodelist.refresh_session('1')
         nodelist.remove_expired_nodes(expired)

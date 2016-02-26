@@ -13,7 +13,7 @@ logging.disable(logging.CRITICAL)
 
 
 def get_milliseconds_timestamp():
-    return (datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1)).total_seconds() * 1000
+    return int((datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1)).total_seconds() * 1000)
 
 
 class ProcessTest(unittest.TestCase):
@@ -93,7 +93,7 @@ class ProcessTest(unittest.TestCase):
 
         current_time_1 = p1.client.hget(p1.heartbeat_hash_name, p1.id)
 
-        assert p2._Process__heartbeat_ref.count() is 2
+        assert p2._Process__heartbeat_ref.count() is 2, p2._Process__heartbeat_ref.count()
         p1.stop()
 
         time.sleep(.5)
@@ -155,6 +155,7 @@ class ProcessTest(unittest.TestCase):
     def test_process_recovery(self):
         p1 = Process(heartbeat_interval=.1)
         p2 = Process(heartbeat_interval=.1)
+
         p1._Process__heartbeat_timer.cancel()
         p2._Process__heartbeat_timer.cancel()
 
@@ -168,7 +169,7 @@ class ProcessTest(unittest.TestCase):
         p1._Process__recover_failed_processes()
 
         assert len(p1.get_registry()) == 2
-        assert "12345" not in p1.client.hgetall(p1.heartbeat_hash_name)
+        assert "12345" not in p1.client.hgetall(p1.heartbeat_hash_name), p1.client.hgetall(p1.heartbeat_hash_name)
 
         ref = p1.create_reference("r1")
         ref_list = ref.nodelist.get_all_nodes()

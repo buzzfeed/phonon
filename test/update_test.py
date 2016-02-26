@@ -2,14 +2,12 @@ import unittest
 import pickle
 import json
 import time
-import logging
 import uuid
 import threading
 
 from phonon.process import Process
 from phonon.update import Update, ConflictFreeUpdate
 
-logging.disable(logging.CRITICAL)
 
 class UserUpdate(Update):
 
@@ -62,6 +60,7 @@ class UserUpdateCustomField(Update):
     def clear(self):
         return {"my_field": {}}
 
+
 class ConflictFreeUserUpdate(ConflictFreeUpdate):
 
     def execute(self):
@@ -69,6 +68,7 @@ class ConflictFreeUserUpdate(ConflictFreeUpdate):
         client = self.process().client
         for key, val in self.doc.items():
             client.incr("{0}.write.{1}".format(self.resource_id, key), int(val))
+
 
 class BaseUpdateTest(unittest.TestCase):
 
@@ -112,7 +112,9 @@ class BaseUpdateTest(unittest.TestCase):
     def test_end_session_executes_for_unique_references(self):
         pass
 
+
 class UpdateTest(unittest.TestCase):
+
     def test_cache_caches(self):
         p = Process()
         a = UserUpdate(process=p, _id='12345', database='test', collection='user',
@@ -182,7 +184,7 @@ class UpdateTest(unittest.TestCase):
 
         p.stop()
         p2.stop()
-    
+
     def test_data_is_recovered(self):
         p = Process()
         client = p.client
@@ -563,7 +565,9 @@ class UpdateTest(unittest.TestCase):
         p.stop()
         p2.stop()
 
+
 class ConflictFreeUpdateTest(unittest.TestCase):
+
     def setUp(self):
         if hasattr(Process, "client"):
             Process.client.flushall()
@@ -572,7 +576,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         p = Process()
 
         a = ConflictFreeUserUpdate(process=p, _id='12345', database='test', collection='user',
-                       spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
+                                   spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
         client = a.process().client
         client.flushall()
         a.cache()
@@ -581,10 +585,10 @@ class ConflictFreeUpdateTest(unittest.TestCase):
 
         client.flushall()
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
         p2 = Process()
         c = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
 
         assert b._ConflictFreeUpdate__get_cached_doc() == {}, b._ConflictFreeUpdate__get_cached_doc()
 
@@ -614,7 +618,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
 
         p.stop()
         p2.stop()
-    
+
     def test_data_is_recovered(self):
         p = Process()
         client = p.client
@@ -622,7 +626,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         client.flushall()
 
         a = ConflictFreeUserUpdate(process=p, _id='12345', database='test', collection='user',
-                       spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
+                                   spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         p._Process__heartbeat_timer.cancel()
 
@@ -646,7 +650,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
 
         assert len(p.get_registry()) == 1
         a = ConflictFreeUserUpdate(process=p, _id='12345', database='test', collection='user',
-                       spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
+                                   spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
         cached = a._ConflictFreeUpdate__get_cached_doc()
         assert cached == {u'a': '2', u'c': '6', u'b': '4'}, cached
         p.stop()
@@ -655,9 +659,9 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         p = Process()
         client = p.client
         a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
         b = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
+                                   spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
         assert a.ref.count() == 1, a.ref.count()
         nodelist = a.ref.nodelist.get_all_nodes()
@@ -687,9 +691,9 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         p = Process()
         p2 = Process()
         a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
         b = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
+                                   spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
         client = a.process().client
 
@@ -723,11 +727,11 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         p2 = Process()
         p3 = Process()
         a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
         b = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
+                                   spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
         c = ConflictFreeUserUpdate(process=p3, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
+                                   spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
         client = a.process().client
 
@@ -775,11 +779,11 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         p.client.flushall()
 
         a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
         b = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
+                                   spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
         c = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
+                                   spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
         client = a.process().client
 
@@ -822,15 +826,15 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         p = Process()
         p.client.flushall()
         a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
         c = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
+                                   spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
         p2 = Process()
         b = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
+                                   spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
         d = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 20., 'b': 21., 'c': 22.})
+                                   spec={'_id': 123456}, doc={'a': 20., 'b': 21., 'c': 22.})
 
         client = a.process().client
 
@@ -855,9 +859,8 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(a.resource_id, k)) == v
 
-
         e = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 30., 'b': 31., 'c': 32.})
+                                   spec={'_id': 123456}, doc={'a': 30., 'b': 31., 'c': 32.})
 
         c._cache()
         d.end_session()
@@ -888,7 +891,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         client = p1.client
 
         a = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})        
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
 
         with a.ref.lock():
             a._cache()
@@ -906,12 +909,11 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         p2 = Process()
 
         a = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
         b = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
+                                   spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
         c = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
-
+                                   spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
         t = threading.Thread(target=a._cache)
         t2 = threading.Thread(target=b._cache)
@@ -936,7 +938,7 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         client = p1.client
 
         a = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})        
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
 
         with a.ref.lock():
             a._execute()
@@ -947,16 +949,15 @@ class ConflictFreeUpdateTest(unittest.TestCase):
 
         p1.stop()
 
-
     def test_multiple_processes_execute_concurrently_without_lock(self):
         p1 = Process()
         client = p1.client
         p2 = Process()
 
         a = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
+                                   spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
         b = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
-                       spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
+                                   spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
         with a.ref.lock():
             a._cache()

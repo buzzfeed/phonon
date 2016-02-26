@@ -18,4 +18,3 @@ exclude_lines =
     time.sleep
 precision = 2
 show_missing = True
-title = DisRef Coverage Report

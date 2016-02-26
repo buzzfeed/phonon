@@ -1,10 +1,8 @@
 import unittest
 import json
-import datetime
 import time
 import logging
 
-from phonon import LOCAL_TZ
 from phonon.process import Process
 from phonon.cache import LruCache
 
@@ -64,8 +62,8 @@ class LruCacheTest(unittest.TestCase):
             def __init__(self, key):
                 self.key = key
                 self.__called = False
-                self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
-                self.hard_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
+                self.soft_expiration = time.time() + 15
+                self.hard_expiration = time.time() + 15
 
             def merge(self, other):
                 self.__other = other
@@ -80,11 +78,11 @@ class LruCacheTest(unittest.TestCase):
                 assert other is self.__other
 
             def refresh(self, other):
-                self.soft_expiration = datetime.datetime.now(LOCAL_TZ) + datetime.timedelta(15)
+                self.soft_expiration = time.time() + 15
                 self.merge(other)
 
             def is_expired(self):
-                return datetime.datetime.now(LOCAL_TZ) > self.hard_expiration
+                return time.time() > self.hard_expiration
 
             def called(self):
                 return self.__called
@@ -333,18 +331,18 @@ class LruCacheTest(unittest.TestCase):
         p.client.flushdb()
 
         a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
 
         self.cache.set('456', a)
         self.cache.set('456', b)
 
         p2 = Process()
         c = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
         d = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
 
         self.cache2 = LruCache(max_entries=5)
 
@@ -407,18 +405,18 @@ class LruCacheTest(unittest.TestCase):
         p.client.flushdb()
 
         a = ConflictFreeUserUpdate(process=p, _id='457', database='test', collection='user',
-                       spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
+                                   spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 1.}, init_cache=True)
         b = ConflictFreeUserUpdate(process=p, _id='457', database='test', collection='user',
-                       spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
+                                   spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 2.}, init_cache=True)
 
         self.async_cache.set('456', a)
         self.async_cache.set('456', b)
 
         p2 = Process()
         c = ConflictFreeUserUpdate(process=p2, _id='457', database='test', collection='user',
-                       spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
+                                   spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 3.}, init_cache=True)
         d = ConflictFreeUserUpdate(process=p2, _id='457', database='test', collection='user',
-                       spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
+                                   spec={u'_id': 457}, doc={'d': 4., 'e': 5., 'f': 4.}, init_cache=True)
 
         self.cache2 = LruCache(max_entries=5, async=True)
 
@@ -481,9 +479,9 @@ class LruCacheTest(unittest.TestCase):
         p = Process()
         p.client.flushdb()
 
-        a = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 1.},  process=p, _id='456',
+        a = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 1.}, process=p, _id='456',
                                   database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-        b = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 2.},  process=p, _id='456',
+        b = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 2.}, process=p, _id='456',
                                   database='test', collection='user', spec={u'_id': 456}, init_cache=True)
 
         self.async_cache.set('456', a)
@@ -492,7 +490,7 @@ class LruCacheTest(unittest.TestCase):
         p2 = Process()
         c = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 3.}, process=p2, _id='456',
                                   database='test', collection='user', spec={u'_id': 456}, init_cache=True)
-        d = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 4.},  process=p2, _id='456',
+        d = UserUpdateCustomField(my_field={'d': 4., 'e': 5., 'f': 4.}, process=p2, _id='456',
                                   database='test', collection='user', spec={u'_id': 456}, init_cache=True)
 
         self.cache2 = LruCache(max_entries=5, async=True)
@@ -548,9 +546,9 @@ class LruCacheTest(unittest.TestCase):
         p = Process()
 
         a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.005)
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.005)
 
         self.cache.set('456', a)
         time.sleep(.04)
@@ -607,20 +605,19 @@ class LruCacheTest(unittest.TestCase):
         p = Process()
         p.client.flushdb()
         a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.01)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, soft_session=.01)
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.01)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, soft_session=.01)
 
         self.async_cache.set('456', a)
         set_return = self.async_cache.set('456', b)
 
-        time.sleep(0.01)
+        time.sleep(0.02)
 
         assert set_return is False
         executed_doc = {u'e': "10", u'd': "8", u'f': "3"}
         for k, v in executed_doc.items():
             assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) is None
-
 
         get_return = self.async_cache.get('456')
         assert get_return is None, get_return
@@ -633,7 +630,6 @@ class LruCacheTest(unittest.TestCase):
         executed_doc = {u'e': "10", u'd': "8", u'f': "3"}
         for k, v in executed_doc.items():
             assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) == v
-
 
         p.client.flushdb()
         p.stop()
@@ -675,11 +671,11 @@ class LruCacheTest(unittest.TestCase):
         p = Process()
 
         a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
         c = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
 
         self.cache.set('456', a)
         time.sleep(.04)
@@ -691,7 +687,6 @@ class LruCacheTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) == v
 
-
         self.cache.set('456', c)
         time.sleep(.04)
 
@@ -702,7 +697,6 @@ class LruCacheTest(unittest.TestCase):
         executed_doc = {u'e': "15", u'd': "12", u'f': "4"}
         for k, v in executed_doc.items():
             assert p.client.get("{0}.write.{1}".format(a.resource_id, k)) == v
-
 
         p.client.flushdb()
         p.stop()
@@ -754,11 +748,11 @@ class LruCacheTest(unittest.TestCase):
         p = Process()
 
         a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
         c = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
 
         self.async_cache.set('456', a)
         time.sleep(.04)
@@ -835,11 +829,11 @@ class LruCacheTest(unittest.TestCase):
         self.cache2 = LruCache(max_entries=5)
 
         a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
         c = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
 
         self.cache.set('456', a)
         time.sleep(.04)
@@ -915,11 +909,11 @@ class LruCacheTest(unittest.TestCase):
         self.cache2 = LruCache(max_entries=5, async=True)
 
         a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
         c = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
 
         self.cache.set('456', a)
         time.sleep(.04)
@@ -1005,11 +999,11 @@ class LruCacheTest(unittest.TestCase):
         self.cache2 = LruCache(max_entries=5, async=True)
 
         a = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
         b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
         c = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
-                       spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
+                                   spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
 
         self.async_cache.set('456', a)
         time.sleep(.04)
@@ -1043,4 +1037,3 @@ class LruCacheTest(unittest.TestCase):
         p.client.flushdb()
         p.stop()
         p2.stop()
-

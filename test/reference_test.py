@@ -1,9 +1,10 @@
 import unittest
+import time
 import redis
-import datetime
 import threading
 
 from phonon.process import Process
+
 
 class ReferenceTest(unittest.TestCase):
 
@@ -103,18 +104,19 @@ class ReferenceTest(unittest.TestCase):
         a.refresh_session()
         nodes = a.nodelist.get_all_nodes()
         assert a.nodelist.count() == 1, "{0}: {1}".format(nodes, len(nodes))
-        assert isinstance(a.nodelist.get_last_updated(p.id), datetime.datetime)
+        assert isinstance(a.nodelist.get_last_updated(p.id), int)
         p.stop()
 
     def test_refresh_session_resets_time(self):
         p = Process()
         a = p.create_reference('foo')
         start = a.nodelist.get_last_updated(p.id)
+        time.sleep(0.01)
         a.refresh_session()
         end = a.nodelist.get_last_updated(p.id)
         assert end > start
-        assert isinstance(end, datetime.datetime)
-        assert isinstance(start, datetime.datetime)
+        assert isinstance(end, int)
+        assert isinstance(start, int)
         p.stop()
 
     def test_get_and_increment_times_modified(self):
