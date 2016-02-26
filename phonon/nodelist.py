@@ -1,8 +1,7 @@
-import datetime
+import time
 
-from dateutil import parser
+from phonon import PHONON_NAMESPACE
 
-from phonon import get_logger, PHONON_NAMESPACE, LOCAL_TZ
 
 class Nodelist(object):
     """
@@ -33,7 +32,7 @@ class Nodelist(object):
         """
         if not node_id:
             node_id = self.__process.id
-        self.__process.client.hset(self.nodelist_key, node_id, datetime.datetime.now(LOCAL_TZ).isoformat())
+        self.__process.client.hset(self.nodelist_key, node_id, int(time.time() * 1000.))
 
     def find_expired_nodes(self, node_ids=None):
         """
@@ -46,12 +45,12 @@ class Nodelist(object):
             will be checked.
         """
         if node_ids:
-            nodes = zip(node_ids, [parser.parse(dt) for dt in self.__process.client.hmget(self.nodelist_key, node_ids)])
+            nodes = zip(node_ids, [int(t) for t in self.__process.client.hmget(self.nodelist_key, node_ids)])
         else:
             nodes = self.get_all_nodes().items()
 
-        expiration_delta = datetime.timedelta(seconds=self.__process.process_ttl)
-        now = datetime.datetime.now(LOCAL_TZ)
+        expiration_delta = self.__process.process_ttl * 1000.
+        now = int(time.time() * 1000.)
         return [node_id for (node_id, last_updated) in nodes if (now - last_updated) > expiration_delta]
 
     def remove_expired_nodes(self, node_ids=None):
@@ -97,26 +96,26 @@ class Nodelist(object):
 
         :param string node_id: optional, the process id of the node to retrieve
 
-        :rtype: None, datetime
-        :returns: Returns a parsed datetime if exists, otherwise None
+        :rtype: int
+        :returns: Returns a unix timestamp if it exists, otherwise None
         """
         if not node_id:
             node_id = self.__process.id
 
         dt = self.__process.client.hget(self.nodelist_key, node_id)
-        return parser.parse(dt) if dt else None
+        return int(dt) if dt else None
 
     def get_all_nodes(self):
         """
         Returns all nodes in the hash with the time they were last refreshed
         as a dictionary.
 
-        :rtype: dict(string, datetime.datetime)
-        :returns: A dictionary of strings and corresponding datetime objects
+        :rtype: dict(string, int)
+        :returns: A dictionary of strings and corresponding timestamps
 
         """
         nodes = self.__process.client.hgetall(self.nodelist_key)
-        return {node_id: parser.parse(dt) for (node_id, dt) in nodes.items()}
+        return {node_id: int(dt) for (node_id, dt) in nodes.items()}
 
     def count(self):
         """

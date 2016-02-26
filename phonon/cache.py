@@ -2,13 +2,13 @@ from collections import OrderedDict
 import threading
 import Queue
 import time
-from phonon import DisRefError
+from phonon import PhononError
 from phonon import get_logger
 
 logger = get_logger(__name__)
 
 
-class CacheError(DisRefError):
+class CacheError(PhononError):
     pass
 
 
