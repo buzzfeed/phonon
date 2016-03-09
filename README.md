@@ -1,12 +1,18 @@
 # Installation
 
+Simplest way to get the project is through the Python Package Index
+
+```
+pip install phonon
+```
+
 You can install this package pretty easily with setup.py
 
 ```
 python setup.py install
 ```
 
-Or you can use git+ssh:
+Or you can use git+ssh to get the bleeding edge:
 
 ```
 pip install git+ssh://git@github.com/buzzfeed/phonon.git 

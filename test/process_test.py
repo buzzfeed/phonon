@@ -35,9 +35,9 @@ class ProcessTest(unittest.TestCase):
 
     def test_init_ignores_differing_connection_setting(self):
         p1 = Process()
-        p2 = Process(host="notlocalhost", port=123)
+        p2 = Process(hosts=["notlocalhost"], port=123)
 
-        p2_connection = p2.client.connection_pool.connection_kwargs
+        p2_connection = p2.client.clients[0].connection_pool.connection_kwargs
         assert p2_connection['host'] != "notlocalhost"
         assert p2_connection['port'] != 123
 

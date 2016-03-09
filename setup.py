@@ -9,14 +9,20 @@ except ImportError:
 
 setup(
     name='phonon',
-    version='0.10',
+    version='0.11',
     packages=find_packages(),
     author='Andrew Kelleher, Matthew Semanyshyn',
     author_email='andrew.kelleher@buzzfeed.com, matthew.semanyshyn@buzzfeed.com',
     description='Provides easy, fault tolerant, distributed references with redis as a backend.',
     test_suite='test',
     install_requires=[
+        'redis==2.10.5',
         'pytz==2014.10',
+    ],
+    tests_require=[
+        'funcsigs==0.4',
+        'mock==1.3.0',
+        'pbr==1.8.1',
     ],
     url='http://www.github.com/buzzfeed/phonon',
     classifiers=[

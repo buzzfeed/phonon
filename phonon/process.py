@@ -6,6 +6,7 @@ import math
 
 from phonon import get_logger, PhononError, PHONON_NAMESPACE, TTL
 from phonon.reference import Reference
+from phonon.client import ShardedClient
 
 logger = get_logger(__name__)
 
@@ -50,7 +51,7 @@ class Process(object):
 
         def __enter__(self):
             blocking_timeout = self.__process.BLOCKING_TIMEOUT if self.block else 0
-            self.__lock = self.client.lock(name=self.lock_key, timeout=TTL,
+            self.__lock = self.client.lock(self.lock_key, timeout=TTL,
                                            sleep=self.__process.RETRY_SLEEP, blocking_timeout=blocking_timeout)
 
             self.__lock.__enter__()
@@ -66,12 +67,13 @@ class Process(object):
     class AlreadyLocked(PhononError):
         pass
 
-    def __init__(self, process_ttl=int(0.5 * TTL), host='localhost', port=6379, db=1, heartbeat_interval=10, recover_failed_processes=True):
+    def __init__(self, process_ttl=int(0.5 * TTL), host=None, hosts=None, port=6379, db=1, heartbeat_interval=10, recover_failed_processes=True):
         """
         :param process_ttl int: The time after which we consider a node to be
             unresponsive. This should be at most 1/2 the length of the TTL
             value.
         :param str host: The host to connect to redis over.
+        :param str hosts: The hosts to connect in the sharded case.
         :param int port: The port to connect to redis on.
         :param int heartbeat_interval: The frequency in seconds with which to
             update the heartbeat for this process.
@@ -79,7 +81,13 @@ class Process(object):
             attempt to recover references from other failed processes.
 
         """
-        self.id = unicode(uuid.uuid4())
+        if host:
+            logger.warning("`host` is deprecated and should no longer be used in favor of `hosts`")
+            hosts = [host]
+        if hosts is None:
+            hosts = ['localhost']
+
+        self.id = str(uuid.uuid4())
         self.process_ttl = process_ttl
         self.recover_failed_processes = recover_failed_processes
         self.heartbeat_interval = heartbeat_interval
@@ -88,13 +96,9 @@ class Process(object):
         self.__heartbeat_ref = None
 
         if not hasattr(Process, 'client'):
-            Process.client = redis.StrictRedis(host=host, port=port, db=db)
+            Process.client = ShardedClient(hosts=hosts, port=port, db=db)
         else:
-            connection_kwargs = Process.client.connection_pool.connection_kwargs
-            if connection_kwargs['port'] != port or connection_kwargs['host'] != host or connection_kwargs['db'] != db:
-                logger.warning("An existing Redis connection exists: host {0}, port {1}, db {2}.  Your connection paramters\
-                                are being ignored."
-                               .format(connection_kwargs['port'], connection_kwargs['host'], connection_kwargs['db']))
+            logger.warning("A connection already exists. You connection parameters are being ignored.")
 
         self.client = Process.client
         self.client.ping()
