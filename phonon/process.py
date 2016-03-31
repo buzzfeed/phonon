@@ -18,8 +18,8 @@ def get_ms():
 def s_to_ms(s):
     return int(s * 1000.)
 
-
 class Process(object):
+
     """
     Represents a process on which a particular resource lives, identified by a
     unique id automatically assigned to it.  It establishes a connection to
@@ -56,12 +56,14 @@ class Process(object):
 
             self.__lock.__enter__()
             if self.__lock.local.token:
+                self.__process.locks[self.lock_key] = self.__lock
                 return self.__lock
             else:
                 raise Process.AlreadyLocked(
                     "Could not acquire a lock. Possible deadlock for key: {0}".format(self.lock_key))
 
         def __exit__(self, type, value, traceback):
+            del self.__process.locks[self.lock_key]
             self.__lock.__exit__(type, value, traceback)
 
     class AlreadyLocked(PhononError):
@@ -92,6 +94,7 @@ class Process(object):
         self.recover_failed_processes = recover_failed_processes
         self.heartbeat_interval = heartbeat_interval
         self.heartbeat_hash_name = "{0}_heartbeat".format(PHONON_NAMESPACE)
+        self.locks = {}
         self.__heartbeat_timer = None
         self.__heartbeat_ref = None
 
@@ -271,6 +274,9 @@ class Process(object):
 
         if self.__heartbeat_ref:
             self.__heartbeat_ref.dereference()
+
+        for lock_key, lock in self.locks.items():
+            self.client.delete(lock_key)
 
     def __del__(self):
         self.stop()
