@@ -119,26 +119,6 @@ class ProcessTest(unittest.TestCase):
 
         p1.stop()
 
-    def test_lock_wrapper(self):
-        p1 = Process()
-        lock = Process.Lock(p1, "foo", True)
-        lock2 = Process.Lock(p1, "foo", False)
-
-        assert lock.block is True
-        assert lock2.block is False
-        assert lock.lock_key == "foo.lock"
-        assert lock.client is p1.client
-        assert lock._Lock__process is p1
-        assert lock._Lock__lock is None
-
-        with lock as acquired_lock:
-            assert lock._Lock__lock is acquired_lock
-            assert(isinstance(acquired_lock, redis.lock.LuaLock))
-
-            self.assertRaises(Process.AlreadyLocked, lock2.__enter__)
-
-        p1.stop()
-
     def test_remove_from_registry(self):
         p1 = Process()
 
