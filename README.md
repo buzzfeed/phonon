@@ -61,7 +61,7 @@ def lookup_email_and_apply_to_record(record, reference):
             update_record_with_email(record, email)
             if email_verification_service.count() == 1:
                 write_record_to_database(record)
-    except Process.AlreadyLocked, e:
+    except AlreadyLocked, e:
         # Unable to acquire lock. Handle as needed.  
         pass
 
@@ -72,7 +72,7 @@ def verify_address_and_apply_to_record(record, reference):
             update_record_with_address(record, address)
             if address_lookup_service.count() == 1:
                 write_record_to_database(record)
-    except Process.AlreadyLocked, e:
+    except AlreadyLocked, e:
         # Unable to acquire lock. Handle as needed.
         pass
 
