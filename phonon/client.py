@@ -1,6 +1,12 @@
 import redis
 import zlib
 
+from phonon import get_logger
+
+logger = get_logger(__name__)
+
+connection = None
+
 
 class ShardedClient(object):
 
@@ -31,3 +37,4 @@ class ShardedClient(object):
             return getattr(client, method)(*args, **kwargs)
 
         return wrap
+

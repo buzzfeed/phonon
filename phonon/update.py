@@ -2,7 +2,11 @@ import pickle
 import time
 from collections import namedtuple
 
-from phonon import PHONON_NAMESPACE, TTL
+from phonon import PHONON_NAMESPACE, TTL, get_logger
+import phonon.connections
+import phonon.reference
+
+logger = get_logger(__name__)
 
 
 class BaseUpdate(object):
@@ -33,12 +37,13 @@ class BaseUpdate(object):
     class. After the `execute` method finishes; the resource will be removed
     from redis.
     """
+    REDIS_HOSTS = ['localhost']
+    REDIS_PORT = 6379
 
-    def __init__(self, process, _id, database='test', collection='test',
-                 spec=None, doc=None, init_cache=False, block=True, hard_session=TTL,
+    def __init__(self, _id, database='test', collection='test',
+                 spec=None, doc=None, init_cache=False, hard_session=TTL,
                  soft_session=.5 * TTL):
         """
-        :param Process process: The process object, unique to the node.
         :param str _id: The primary key for the record in the database.
         :param str database: The name of the database.
         :param dict spec: A specification to use in looking up records to
@@ -47,8 +52,6 @@ class BaseUpdate(object):
         :param bool init_cache: Optional. Determines whether the update should
             cache immediately.  While this will allow for more complete recovery
             of data in the event of a node failure, it may reduce performance.
-        :param bool block: Optional. Whether or not to block when establishing
-            locks.
         :param int hard_session: The maximum number of minutes an Update should
             live before being forced to execute. Generally speaking, this value
             should be larger than then soft_session.
@@ -57,30 +60,20 @@ class BaseUpdate(object):
             this value can is refreshed to extend the life of the session.
         """
         self.resource_id = '{0}_Update.{1}.{2}'.format(PHONON_NAMESPACE, collection, _id)
-
         self.spec = spec
         self.doc = doc if doc is not None else {}
         self.collection = collection
         self.database = database
-        self.block = block
-        self.__process = process
-        self.ref = self.__process.create_reference(resource=self.resource_id, block=block)
+        self.ref = phonon.reference.Reference(resource=self.resource_id)
         self.init_cache = init_cache
         self.hard_session = hard_session
         self.soft_session = soft_session
         self.soft_expiration = int((time.time() + self.soft_session) * 1000.)
         self.hard_expiration = int((time.time() + self.hard_session) * 1000.)
+        self.conn = phonon.connections.connection
 
         if self.init_cache:
             self._cache()
-
-    def process(self):
-        """ Get underlying process variable
-
-        :rtype: :class:`phonon.process.Process` class
-        :returns: Process variable
-        """
-        return self.__process
 
     def is_expired(self):
         """
@@ -109,7 +102,7 @@ class BaseUpdate(object):
         self.set_force_expiry()
         self.end_session()
 
-    def end_session(self, block=True):
+    def end_session(self):
         """
         Indicate to this update its session has ended on the local machine.
         The implementation of your cache, merge, and execute methods will be
@@ -117,7 +110,7 @@ class BaseUpdate(object):
         possible.
 
         """
-        if not self.ref.dereference(self._execute, block=block):
+        if not self.ref.dereference(self._execute):
             if self.is_expired():
                 # If this update has expired but other active references
                 # to the resource still exist, we force this update to
@@ -125,9 +118,10 @@ class BaseUpdate(object):
                 # to prevent any other processes from executing the same
                 # data.
                 self._execute()
-                with self.ref.lock(block=block):
-                    self.__process.client.delete(self.ref.resource_key)
-                    self.__process.client.set(self.ref.times_modified_key, 0)
+
+                with self.ref.lock():
+                    self.conn.client.delete(self.ref.resource_key)
+                    self.conn.client.set(self.ref.times_modified_key, 0)
             else:
                 self._cache()
 
@@ -218,30 +212,27 @@ class Update(BaseUpdate):
         """
         This method caches the update to redis.
         """
-        self.process().client.set(self.resource_id,
-                                  pickle.dumps(self))
+        self.conn.client.set(self.resource_id,
+                             pickle.dumps(self))
 
     def _merge(self):
         """
         Handles how to extract a resource's data from redis and calls the user
         defined `merge` method.
         """
-        pickled = self.process().client.get(self.resource_id)
+        pickled = self.conn.client.get(self.resource_id)
         if pickled:
             cached = pickle.loads(pickled)
             self.merge(cached)
 
-    def _cache(self, block=None):
+    def _cache(self):
         """
         Handles deciding whether or not to get the resource from redis. Also
         implements merging cached records with this one (by implementing your
         `merge` method). Increments the number of times this record was
         modified if the cache method executes successfully (does not raise).
         """
-        if block is None:
-            block = self.block
-
-        with self.ref.lock(block=block):
+        with self.ref.lock():
             if self.ref.get_times_modified() > 0:
                 self._merge()
             self.cache()
@@ -250,17 +241,14 @@ class Update(BaseUpdate):
         if self.init_cache:
             self._clear()
 
-    def _execute(self, block=None):
+    def _execute(self):
         """
         Handles deciding whether or not to get the resource from redis. Also
         implements merging cached records with this one (by implementing your
         `merge` method). Increments the number of times this record was
         modified if the cache method executes successfully (does not raise).
         """
-        if block is None:
-            block = self.block
-
-        with self.ref.lock(block=block):
+        with self.ref.lock():
             if self.ref.get_times_modified() > 0:
                 self._merge()
             self.execute()
@@ -283,7 +271,7 @@ class ConflictFreeUpdate(BaseUpdate):
         :rtype: dict
         :returns: The update's doc pulled from redis.
         """
-        return self.process().client.hgetall(self.resource_id)
+        return self.conn.client.hgetall(self.resource_id)
 
     def cache(self):
         """
@@ -295,7 +283,7 @@ class ConflictFreeUpdate(BaseUpdate):
         specific needs.
         """
         for k, v in self.doc.items():
-            self.process().client.hincrby(self.resource_id, k, int(v))
+            self.conn.client.hincrby(self.resource_id, k, int(v))
 
     def merge(self, other):
         """
@@ -320,7 +308,7 @@ class ConflictFreeUpdate(BaseUpdate):
         update_doc = UpdateDoc(self.__get_cached_doc())
         self.merge(update_doc)
 
-    def _cache(self, block=None):
+    def _cache(self):
         """
         Handles deciding whether or not to get the resource from redis. Also
         implements merging cached records with this one (by implementing your
@@ -330,7 +318,7 @@ class ConflictFreeUpdate(BaseUpdate):
         self.cache()
         self._clear()
 
-    def _execute(self, block=None):
+    def _execute(self):
         """
         Handles deciding whether or not to get the resource from redis. Also
         implements merging cached records with this one (by implementing your
