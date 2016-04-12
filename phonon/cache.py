@@ -1,4 +1,4 @@
-from collections import OrderedDict
+import collections
 import threading
 import Queue
 import time
@@ -30,31 +30,39 @@ class LruCache(phonon.event.EventMixin):
 
     def __init__(self, max_entries=10000, ioloop=None):
         super(LruCache, self).__init__()
+
         self.ioloop = ioloop or tornado.ioloop.IOLoop.current()
         self.max_entries = max_entries
+        self.__num_entries = 0
+        self.__entries = collections.OrderedDict()
 
-    def set(self, key, val, callback):
-        self.ioloop.add_callback(self.on_set, key, val, callback)
-        if self.num_entries > self.max_entries:
-            self.ioloop.add_callback(self.on_full)
-
-    def get(self, key, callback):
-        self.ioloop.add_callback(self.on_get, key, callback)
+    def set(self, model, callback=None):
+        self.ioloop.add_callback(self.on_set, model, callback)
 
     def on_full(self):
-        pass
+        if self.__num_entries <= self.max_entries:
+            return
 
-    def on_set(self, key, val, callback):
-        pass
+        for i in xrange(self.__num_entries - self.max_entries):
+            self.ioloop.add_callback(self.on_expire_oldest)
 
-    def on_get(self, key, callback):
-        pass
+    def on_set(self, model, callback=None):
+        if model.id in self.__entries:
+            self.__entries[model.id][0].merge(model)
+            self.ioloop.remove_timeout(self.__entries[model.id][1])
+            self.entries[model.id][1] = self.ioloop.add_timeout(self.deadline, self.expire, model)
+        else:
+            self.__entries[model.id] = [model,
+                self.ioloop.add_timeout(self.deadline, self.expire, model)]
+            self.__num_entries += 1
+            if self.__num_entries > self.max_entries:
+                self.ioloop.add_callback(self.on_full)
 
-    def on_expire(self):
-        pass
+        if callable(callback):
+            callback(model)
 
-    def on_purge(self):
-        pass
+    def on_expire_oldest(self):
+        self.__num_entries -= 1
 
 
 def expire_updates(cache, update_queue):
@@ -90,7 +98,7 @@ class LruCache(object):
             given time.
         """
         self.max_entries = max_entries
-        self.__cache = OrderedDict()
+        self.__cache = collections.OrderedDict()
         self.__size = 0
         self.__failed = None
         self.__async = async
