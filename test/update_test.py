@@ -5,8 +5,12 @@ import time
 import uuid
 import threading
 
-from phonon.process import Process
+import phonon.connections
 from phonon.update import Update, ConflictFreeUpdate
+from phonon import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class UserUpdate(Update):
@@ -26,7 +30,7 @@ class UserUpdate(Update):
             'collection': self.collection,
             'database': self.database
         }
-        client = self.process().client
+        client = self.conn.client
         client.set("{0}.write".format(self.resource_id), json.dumps(obj))
 
 
@@ -51,8 +55,9 @@ class UserUpdateCustomField(Update):
             'collection': self.collection,
             'database': self.database
         }
-        client = self.process().client
-        client.set("{0}.write".format(self.resource_id), json.dumps(obj))
+        client = self.conn.client
+        key, value = "{}.write".format(self.resource_id), json.dumps(obj)
+        rc = client.set(key, value)
 
     def state(self):
         return {"my_field": self.my_field}
@@ -65,46 +70,43 @@ class ConflictFreeUserUpdate(ConflictFreeUpdate):
 
     def execute(self):
         self.called = True
-        client = self.process().client
+        client = self.conn.client
         for key, val in self.doc.items():
-            client.incr("{0}.write.{1}".format(self.resource_id, key), int(val))
+            redis_key = "{0}.write.{1}".format(self.resource_id, key)
+            client.incr(redis_key, int(val))
 
 
 class BaseUpdateTest(unittest.TestCase):
 
-    def test_process(self):
-        p = Process()
-        a = UserUpdate(process=p, _id='123', database='test', collection='user',
-                       spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.})
-        self.assertIs(p, a.process())
-        self.assertIs(p.client, a.process().client)
+    def setUp(self):
+        phonon.connections.connect(hosts=['localhost'])
+        phonon.connections.connection.client.flushall()
 
-        p.stop()
+    def test_process(self):
+        conn = phonon.connections.connection
+        a = UserUpdate(_id='123', database='test', collection='user',
+                       spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.})
+        self.assertIs(conn, a.conn)
+        self.assertIs(conn.client, a.conn.client)
 
     def test_initializer_updates_ref_count(self):
-        p = Process()
-        a = UserUpdate(process=p, _id='123', database='test', collection='user',
+        a = UserUpdate(_id='123', database='test', collection='user',
                        spec={'_id': 123}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
 
-        client = a.process().client
         nodelist = a.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 1
-        assert a.process().id in nodelist
-
-        p.stop()
+        assert a.conn.id in nodelist
 
     def test_session_refreshes(self):
-        p = Process()
-        a = UserUpdate(process=p, _id='12345', database='test', collection='user',
+        a = UserUpdate(_id='12345', database='test', collection='user',
                        spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, soft_session=5)
-        b = UserUpdate(process=p, _id='12345', database='test', collection='user',
+        b = UserUpdate(_id='12345', database='test', collection='user',
                        spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, soft_session=5)
 
         old_soft_expiration = a.soft_expiration
         a.refresh(b)
 
         assert a.soft_expiration >= old_soft_expiration
-        p.stop()
 
     def test_end_session_raises_when_deadlocked(self):
         pass
@@ -115,12 +117,16 @@ class BaseUpdateTest(unittest.TestCase):
 
 class UpdateTest(unittest.TestCase):
 
+    def setUp(self):
+        phonon.connections.connect(hosts=['localhost'])
+        phonon.connections.connection.client.flushall()
+
     def test_cache_caches(self):
-        p = Process()
-        a = UserUpdate(process=p, _id='12345', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        a = UserUpdate(_id='12345', database='test', collection='user',
                        spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
         a.cache()
-        client = a.process().client
+        client = a.conn.client
         cached = pickle.loads(client.get(a.resource_id))
         state = cached.__getstate__()
         del state['resource_id']
@@ -131,13 +137,13 @@ class UpdateTest(unittest.TestCase):
                          u'database': u'test'}
 
         client.flushall()
-        b = UserUpdate(process=p, _id='456', database='test', collection='user',
+        b = UserUpdate(_id='456', database='test', collection='user',
                        spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
-        p2 = Process()
-        c = UserUpdate(process=p2, _id='456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        c = UserUpdate(_id='456', database='test', collection='user',
                        spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
 
-        client = a.process().client
+        client = a.conn.client
         assert client.get(b.resource_id) is None, client.get(b.resource_id)
 
         assert c.ref.count() == 2, c.ref.count()
@@ -182,21 +188,17 @@ class UpdateTest(unittest.TestCase):
         for k, v in expected_doc.items():
             assert target['doc'][k] == v
 
-        p.stop()
-        p2.stop()
-
     def test_data_is_recovered(self):
-        p = Process()
-        client = p.client
-
+        conn = phonon.connections.connection
+        client = phonon.connections.connection.client
         client.flushall()
 
-        a = UserUpdate(process=p, _id='12345', database='test', collection='user',
+        a = UserUpdate(_id='12345', database='test', collection='user',
                        spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
-        p._Process__heartbeat_timer.cancel()
+        conn.heart.stop()
 
-        assert len(p.get_registry()) == 1
+        assert len(conn.get_registry()) == 1, len(conn.get_registry())
 
         cached = pickle.loads(client.get(a.resource_id) or "{}")
         state = cached.__getstate__()
@@ -207,19 +209,19 @@ class UpdateTest(unittest.TestCase):
                          u'collection': u'user',
                          u'database': u'test'}
 
-        p.client.hset(p.heartbeat_hash_name, p.id, int(time.time()) - 6 * p.heartbeat_interval)
+        client.hset(conn.HEARTBEAT_KEY, conn.id, int(time.time()) - 6 * conn.HEARTBEAT_INTERVAL)
 
-        p.id = unicode(uuid.uuid4())
-        p.registry_key = p._Process__get_registry_key(p.id)
+        conn.id = unicode(uuid.uuid4())
+        conn.registry_key = conn.get_registry_key(conn.id)
 
-        assert len(p.get_registry()) == 0
+        assert len(conn.get_registry()) == 0
 
-        p._Process__update_heartbeat()
-        p._Process__heartbeat_timer.cancel()
+        conn.send_heartbeat()
+        conn.heart.stop()
 
-        assert len(p.get_registry()) == 1
+        assert len(conn.get_registry()) == 1
 
-        a = UserUpdate(process=p, _id='12345', database='test', collection='user',
+        a = UserUpdate(_id='12345', database='test', collection='user',
                        spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         cached = pickle.loads(client.get(a.resource_id) or "{}")
@@ -231,11 +233,8 @@ class UpdateTest(unittest.TestCase):
         assert state['collection'] == 'user'
         assert state['database'] == 'test'
 
-        p.stop()
-
     def test_set_force_expiry(self):
-        p = Process()
-        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        a = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
         assert a.ref.force_expiry is False
@@ -246,14 +245,11 @@ class UpdateTest(unittest.TestCase):
         a.set_force_expiry(True)
         assert a.ref.force_expiry is True
 
-        p.stop()
-
     def test_force_expiry_init_cache(self):
-        p = Process()
-        client = p.client
-        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        client = phonon.connections.connection.client
+        a = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
-        b = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        b = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
         assert a.ref.count() == 1, a.ref.count()
@@ -291,17 +287,15 @@ class UpdateTest(unittest.TestCase):
         assert observed_db == expected_db
         assert observed_spec == expected_spec
 
-        p.stop()
-
     def test_force_expiry_two_processes(self):
-        p = Process()
-        p2 = Process()
-        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        a = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        b = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        b = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
-        client = a.process().client
+        client = a.conn.client
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
@@ -338,21 +332,18 @@ class UpdateTest(unittest.TestCase):
         assert observed_db == expected_db
         assert observed_spec == expected_spec
 
-        p.stop()
-        p2.stop()
-
     def test_force_expiry_multiple_processes_caching(self):
-        p = Process()
-        p2 = Process()
-        p3 = Process()
-        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        a = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        b = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        b = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
-        c = UserUpdate(process=p3, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        c = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        client = a.process().client
+        client = a.conn.client
 
         assert a.ref.count() == 3, a.ref.count()
         assert b.ref.count() == 3, b.ref.count()
@@ -413,20 +404,15 @@ class UpdateTest(unittest.TestCase):
         assert observed_db == expected_db
         assert observed_spec == expected_spec
 
-        p.stop()
-        p2.stop()
-        p3.stop()
-
     def test_force_expiry_same_process_caching(self):
-        p = Process()
-        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        a = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        b = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        b = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
-        c = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        c = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        client = a.process().client
+        client = a.conn.client
 
         assert a.ref.count() == 1, a.ref.count()
         assert b.ref.count() == 1, b.ref.count()
@@ -486,22 +472,20 @@ class UpdateTest(unittest.TestCase):
         assert observed_db == expected_db
         assert observed_spec == expected_spec
 
-        p.stop()
-
     def test_force_expiry_caching_conflicts(self):
-        p = Process()
-        a = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        a = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        c = UserUpdate(process=p, _id='123456', database='test', collection='user',
+        c = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        p2 = Process()
-        b = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        b = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
-        d = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+        d = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 20., 'b': 21., 'c': 22.})
 
-        client = a.process().client
+        client = a.conn.client
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
@@ -527,7 +511,7 @@ class UpdateTest(unittest.TestCase):
         for k, v in expected_doc.items():
             assert observed_doc[k] == v, k
 
-        e = UserUpdate(process=p2, _id='123456', database='test', collection='user',
+        e = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 30., 'b': 31., 'c': 32.})
 
         c._cache()
@@ -562,32 +546,29 @@ class UpdateTest(unittest.TestCase):
         for k, v in expected_doc.items():
             assert observed_doc[k] == v, observed_doc
 
-        p.stop()
-        p2.stop()
-
 
 class ConflictFreeUpdateTest(unittest.TestCase):
 
     def setUp(self):
-        if hasattr(Process, "client"):
-            Process.client.flushall()
+        phonon.connections.connect(hosts=['localhost'])
+        phonon.connections.connection.client.flushall()
 
     def test_cache_caches(self):
-        p = Process()
-
-        a = ConflictFreeUserUpdate(process=p, _id='12345', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        a = ConflictFreeUserUpdate(_id='12345', database='test', collection='user',
                                    spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=False)
-        client = a.process().client
+        client = a.conn.client
         client.flushall()
         a.cache()
         data = a._ConflictFreeUpdate__get_cached_doc()
         assert data == {u'a': '1', u'c': '3', u'b': '2'}, data
 
         client.flushall()
-        b = ConflictFreeUserUpdate(process=p, _id='456', database='test', collection='user',
+        b = ConflictFreeUserUpdate(_id='456', database='test', collection='user',
                                    spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
-        p2 = Process()
-        c = ConflictFreeUserUpdate(process=p2, _id='456', database='test', collection='user',
+
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        c = ConflictFreeUserUpdate(_id='456', database='test', collection='user',
                                    spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
 
         assert b._ConflictFreeUpdate__get_cached_doc() == {}, b._ConflictFreeUpdate__get_cached_doc()
@@ -616,51 +597,48 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(c.resource_id, k)) == v
 
-        p.stop()
-        p2.stop()
-
     def test_data_is_recovered(self):
-        p = Process()
-        client = p.client
-
+        client = phonon.connections.connection.client
         client.flushall()
 
-        a = ConflictFreeUserUpdate(process=p, _id='12345', database='test', collection='user',
+        a = ConflictFreeUserUpdate(_id='12345', database='test', collection='user',
                                    spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
 
-        p._Process__heartbeat_timer.cancel()
+        phonon.connections.connection.heart.stop()
 
-        assert len(p.get_registry()) == 1
-
-        cached = a._ConflictFreeUpdate__get_cached_doc()
-        assert cached == {u'a': '1', u'c': '3', u'b': '2'}
-
-        p.client.hset(p.heartbeat_hash_name, p.id, int(time.time()) - 6 * p.heartbeat_interval)
-
-        p.id = unicode(uuid.uuid4())
-        p.registry_key = p._Process__get_registry_key(p.id)
-
-        assert len(p.get_registry()) == 0
-
-        p._Process__update_heartbeat()
-        p._Process__heartbeat_timer.cancel()
+        assert len(phonon.connections.connection.get_registry()) == 1
 
         cached = a._ConflictFreeUpdate__get_cached_doc()
         assert cached == {u'a': '1', u'c': '3', u'b': '2'}
 
-        assert len(p.get_registry()) == 1
-        a = ConflictFreeUserUpdate(process=p, _id='12345', database='test', collection='user',
+        client.hset(phonon.connections.connection.HEARTBEAT_KEY,
+                    phonon.connections.connection.id,
+                    int(time.time()) - 6 * phonon.connections.connection.HEARTBEAT_INTERVAL)
+
+        conn = phonon.connections.connection
+        conn.id = unicode(uuid.uuid4())
+        conn.registry_key = conn.get_registry_key(conn.id)
+
+        assert len(conn.get_registry()) == 0
+
+        conn.send_heartbeat()
+        conn.heart.stop()
+
+        cached = a._ConflictFreeUpdate__get_cached_doc()
+        assert cached == {u'a': '1', u'c': '3', u'b': '2'}
+
+        assert len(conn.get_registry()) == 1, len(conn.get_registry())
+
+        a = ConflictFreeUserUpdate(_id='12345', database='test', collection='user',
                                    spec={'_id': 12345}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
         cached = a._ConflictFreeUpdate__get_cached_doc()
         assert cached == {u'a': '2', u'c': '6', u'b': '4'}, cached
-        p.stop()
 
     def test_force_expiry_init_cache(self):
-        p = Process()
-        client = p.client
-        a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        client = phonon.connections.connection.client
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.}, init_cache=True)
-        b = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        b = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
         assert a.ref.count() == 1, a.ref.count()
@@ -685,17 +663,15 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(b.resource_id, k)) == v
 
-        p.stop()
-
     def test_force_expiry_two_processes(self):
-        p = Process()
-        p2 = Process()
-        a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        b = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        b = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.}, init_cache=True)
 
-        client = a.process().client
+        client = a.conn.client
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
@@ -719,21 +695,18 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(a.resource_id, k)) == v
 
-        p.stop()
-        p2.stop()
-
     def test_force_expiry_multiple_processes_caching(self):
-        p = Process()
-        p2 = Process()
-        p3 = Process()
-        a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        b = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        b = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
-        c = ConflictFreeUserUpdate(process=p3, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        c = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        client = a.process().client
+        client = a.conn.client
 
         assert a.ref.count() == 3, a.ref.count()
         assert b.ref.count() == 3, b.ref.count()
@@ -770,22 +743,17 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(c.resource_id, k)) == v
 
-        p.stop()
-        p2.stop()
-        p3.stop()
-
     def test_force_expiry_same_process_caching(self):
-        p = Process()
-        p.client.flushall()
+        phonon.connections.connection.client.flushall()
 
-        a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        b = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        b = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
-        c = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        c = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        client = a.process().client
+        client = a.conn.client
 
         assert a.ref.count() == 1, a.ref.count()
         assert b.ref.count() == 1, b.ref.count()
@@ -820,23 +788,22 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(c.resource_id, k)) == v
 
-        p.stop()
-
     def test_force_expiry_caching_conflicts(self):
-        p = Process()
-        p.client.flushall()
-        a = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        phonon.connections.connection.client.flushall()
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        c = ConflictFreeUserUpdate(process=p, _id='123456', database='test', collection='user',
+        c = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        p2 = Process()
-        b = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        b = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
-        d = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
+        d = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 20., 'b': 21., 'c': 22.})
 
-        client = a.process().client
+        client = a.conn.client
 
         assert a.ref.count() == 2, a.ref.count()
         assert b.ref.count() == 2, b.ref.count()
@@ -844,7 +811,6 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         assert len(nodelist) == 2
         nodelist = b.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 2
-
         b._cache()
         a.force_expiry()
 
@@ -859,19 +825,21 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(a.resource_id, k)) == v
 
-        e = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        e = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 30., 'b': 31., 'c': 32.})
 
         c._cache()
-        d.end_session()
+        d.force_expiry()
 
         merged_doc = {u'a': 27.0, u'b': 29.0, u'c': 31.0}
         executed_doc = {u'a': "32", u'b': "36", u'c': "40"}
 
         for k, v in d.doc.items():
             assert merged_doc[k] == v
-        for k, v in executed_doc.items():
-            assert client.get("{0}.write.{1}".format(d.resource_id, k)) == v
+        for k, expected in executed_doc.items():
+            observed = client.get("{0}.write.{1}".format(d.resource_id, k))
+            assert observed == expected, "Got {} and expected {}".format(observed, expected)
 
         e.end_session()
 
@@ -883,14 +851,10 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(d.resource_id, k)) == v
 
-        p.stop()
-        p2.stop()
-
     def test_cache_does_not_lock(self):
-        p1 = Process()
-        client = p1.client
+        client = phonon.connections.connection.client
 
-        a = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
 
         with a.ref.lock():
@@ -900,19 +864,17 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in a._ConflictFreeUpdate__get_cached_doc().items():
             assert cached[k] == v
 
-        p1.stop()
-
     def test_multiple_processes_cache_concurrently_without_lock(self):
-        p1 = Process()
-        client = p1.client
+        client = phonon.connections.connection.client
         client.flushdb()
-        p2 = Process()
 
-        a = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        b = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
+        b = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
-        c = ConflictFreeUserUpdate(process=p2, _id='123456', database='test', collection='user',
+        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        c = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
         t = threading.Thread(target=a._cache)
@@ -930,14 +892,10 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in b._ConflictFreeUpdate__get_cached_doc().items():
             assert cached[k] == v
 
-        p1.stop()
-        p2.stop()
-
     def test_execute_does_not_lock(self):
-        p1 = Process()
-        client = p1.client
+        client = phonon.connections.connection.client
 
-        a = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
 
         with a.ref.lock():
@@ -947,16 +905,12 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(a.resource_id, k)) == v
 
-        p1.stop()
-
     def test_multiple_processes_execute_concurrently_without_lock(self):
-        p1 = Process()
-        client = p1.client
-        p2 = Process()
+        client = phonon.connections.connection.client
 
-        a = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
+        a = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
-        b = ConflictFreeUserUpdate(process=p1, _id='123456', database='test', collection='user',
+        b = ConflictFreeUserUpdate(_id='123456', database='test', collection='user',
                                    spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
         with a.ref.lock():
@@ -973,6 +927,3 @@ class ConflictFreeUpdateTest(unittest.TestCase):
         executed_doc = {u'a': "8", u'b': "10", u'c': "12"}
         for k, v in executed_doc.items():
             assert client.get("{0}.write.{1}".format(b.resource_id, k)) == v
-
-        p1.stop()
-        p2.stop()

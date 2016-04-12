@@ -1,16 +1,11 @@
-import pytz
+import time
 import logging
 import sys
 
-LOCAL_TZ = pytz.utc
 PHONON_NAMESPACE = "phonon"
 TTL = 30 * 60
 
 SYSLOG_LEVEL = logging.WARNING
-
-
-class PhononError(Exception):
-    pass
 
 
 def get_logger(name, log_level=SYSLOG_LEVEL):
@@ -25,3 +20,11 @@ def get_logger(name, log_level=SYSLOG_LEVEL):
     l.setLevel(log_level)
 
     return l
+
+
+def get_ms():
+    return int(time.time() * 1000.)
+
+
+def s_to_ms(s):
+    return int(s * 1000.)
