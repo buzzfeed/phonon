@@ -27,7 +27,6 @@ class ReferenceTest(unittest.TestCase):
 
     def test_lock_is_non_reentrant(self):
         a = phonon.reference.Reference('foo')
-
         with a.lock():
             try:
                 lock = None

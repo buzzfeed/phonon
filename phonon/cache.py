@@ -2,9 +2,12 @@ from collections import OrderedDict
 import threading
 import Queue
 import time
+
+import tornado.ioloop
+
 from phonon.exceptions import PhononError
 from phonon import get_logger
-
+import phonon.event
 
 logger = get_logger(__name__)
 
@@ -15,6 +18,44 @@ class CacheError(PhononError):
 
 class Finish(PhononError):
     pass
+
+
+SET = 0
+GET = 1
+EXPIRE = 2
+PURGE = 3
+
+
+class LruCache(phonon.event.EventMixin):
+
+    def __init__(self, max_entries=10000, ioloop=None):
+        super(LruCache, self).__init__()
+        self.ioloop = ioloop or tornado.ioloop.IOLoop.current()
+        self.max_entries = max_entries
+
+    def set(self, key, val, callback):
+        self.ioloop.add_callback(self.on_set, key, val, callback)
+        if self.num_entries > self.max_entries:
+            self.ioloop.add_callback(self.on_full)
+
+    def get(self, key, callback):
+        self.ioloop.add_callback(self.on_get, key, callback)
+
+    def on_full(self):
+        pass
+
+    def on_set(self, key, val, callback):
+        pass
+
+    def on_get(self, key, callback):
+        pass
+
+    def on_expire(self):
+        pass
+
+    def on_purge(self):
+        pass
+
 
 
 def expire_updates(cache, update_queue):
