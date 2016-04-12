@@ -57,7 +57,6 @@ class LruCache(phonon.event.EventMixin):
         pass
 
 
-
 def expire_updates(cache, update_queue):
     import Queue
     from phonon import get_logger
