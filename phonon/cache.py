@@ -53,7 +53,7 @@ class LruCache(phonon.event.EventMixin):
             self.entries[model.id][1] = self.ioloop.add_timeout(self.deadline, self.expire, model)
         else:
             self.__entries[model.id] = [model,
-                self.ioloop.add_timeout(self.deadline, self.expire, model)]
+                                        self.ioloop.add_timeout(self.deadline, self.expire, model)]
             self.__num_entries += 1
             if self.__num_entries > self.max_entries:
                 self.ioloop.add_callback(self.on_full)
