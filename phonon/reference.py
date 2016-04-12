@@ -1,5 +1,10 @@
 from phonon import get_logger, PHONON_NAMESPACE, TTL
-from phonon.nodelist import Nodelist
+
+import time
+
+import phonon.lock
+import phonon.nodelist
+import phonon.connections
 
 logger = get_logger(__name__)
 
@@ -41,38 +46,20 @@ class Reference(object):
 
     """
 
-    def __init__(self, process, resource, block):
+    def __init__(self, resource):
         """
         :param Process process: The Process to which this reference belongs
         :param str resource: An identifier for the resource. For example:
             Buzz.12345
-        :param bool block: Optional. Whether or not to block when establishing
-            locks.
 
         """
-
         self.resource_key = resource
-        self.block = block
-        self.nodelist = Nodelist(process, resource)
+        self.nodelist = phonon.nodelist.Nodelist(resource)
         self.times_modified_key = "{0}_{1}.times_modified".format(PHONON_NAMESPACE, resource)
         self.force_expiry = False
-        self.__process = process
+        self.conn = phonon.connections.connection
+        self.conn.add_to_registry(self.resource_key)
         self.refresh_session()
-
-    def lock(self, block=None):
-        """
-        Issues a lock for this reference
-
-        Usage:
-            with reference.lock():
-                pass
-
-        :param bool block: Optional. Whether or not to block when establishing
-            lock.
-        """
-
-        block = self.block if block is None else block
-        return self.__process.lock(self.resource_key, block)
 
     def refresh_session(self):
         """
@@ -93,7 +80,7 @@ class Reference(object):
         Increments the number of times this resource has been modified by all
         processes.
         """
-        client = self.__process.client
+        client = self.conn.client
         key = self.times_modified_key
         rc = client.setnx(key, 1)
         if not rc:
@@ -107,7 +94,7 @@ class Reference(object):
         :rtype: int
         """
         key = self.times_modified_key
-        client = self.__process.client
+        client = self.conn.client
         times_modified = client.get(key)
         if times_modified is None:
             return 0
@@ -120,7 +107,10 @@ class Reference(object):
         """
         return self.nodelist.count()
 
-    def dereference(self, callback=None, args=None, kwargs=None, block=None):
+    def lock(self):
+        return phonon.lock.Lock(self.resource_key)
+
+    def dereference(self, callback=None, args=None, kwargs=None):
         """
         This method should only be called while the reference is locked.
 
@@ -152,26 +142,29 @@ class Reference(object):
         if kwargs is None:
             kwargs = {}
 
-        client = self.__process.client
+        client = self.conn.client
 
         rc = False
         if self.force_expiry:
             rc = True
 
-        with self.lock(block):
-            if not rc:
-                self.nodelist.remove_node(self.__process.id)
-                self.nodelist.remove_expired_nodes()
-                rc = self.nodelist.count() == 0
+        retries = 100
+        while retries:
+            try:
+                with self.lock():
+                    if not rc:
+                        self.nodelist.remove_node(self.conn.id)
+                        self.nodelist.remove_expired_nodes()
+                        rc = self.nodelist.count() == 0
+                    try:
+                        if callback is not None and rc:
+                            callback(*args, **kwargs)
+                    finally:
+                        if rc:
+                            client.delete(self.resource_key, self.nodelist.nodelist_key, self.times_modified_key)
 
-        try:
-            if callback is not None and rc:
-                callback(*args, **kwargs)
-        finally:
-            with self.lock(block):
-                if rc:
-                    client.delete(self.resource_key, self.nodelist.nodelist_key, self.times_modified_key)
-
-            client.hdel(self.__process.registry_key, self.resource_key)
-
-        return rc
+                        self.conn.remove_from_registry(self.resource_key)
+                    return rc
+            except phonon.exceptions.AlreadyLocked, e:
+                time.sleep(0.1)
+                retries -= 1

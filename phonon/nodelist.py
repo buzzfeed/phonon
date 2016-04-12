@@ -1,5 +1,7 @@
 import time
 
+import phonon.client
+import phonon.connections
 from phonon import PHONON_NAMESPACE
 
 
@@ -10,16 +12,16 @@ class Nodelist(object):
     session was last refreshed.
     """
 
-    def __init__(self, process, resource_key):
+    def __init__(self, resource_key):
         """
-        :param Process process: The Process to which the instantiating
+        :param phonon.connections.AsyncConn conn: The Process to which the instantiating
             reference belongs
         :param string resource_key: An identifier for the instantiating
             reference
         """
         self.resource_key = resource_key
         self.nodelist_key = "{0}_{1}.nodelist".format(PHONON_NAMESPACE, resource_key)
-        self.__process = process
+        self.conn = phonon.connections.connection
         self.refresh_session()
 
     def refresh_session(self, node_id=None):
@@ -27,16 +29,17 @@ class Nodelist(object):
         Adds or refreshes a particular node in the nodelist, attributing the
         current time with the node_id.
 
-        :param string node_id: optional, the process id of the node whose
+        :param string node_id: optional, the connection id of the node whose
         session should be refreshed
         """
         if not node_id:
-            node_id = self.__process.id
-        self.__process.client.hset(self.nodelist_key, node_id, int(time.time() * 1000.))
+            node_id = self.conn.id
+
+        self.conn.client.hset(self.nodelist_key, node_id, int(time.time() * 1000.))
 
     def find_expired_nodes(self, node_ids=None):
         """
-        Detects processes that have held a reference for longer than its
+        Detects connections that have held a reference for longer than its
         process_ttl without refreshing its session. This function does not
         actually removed them from the hash. (See remove_expired_nodes.)
 
@@ -45,11 +48,11 @@ class Nodelist(object):
             will be checked.
         """
         if node_ids:
-            nodes = zip(node_ids, [int(t) for t in self.__process.client.hmget(self.nodelist_key, node_ids)])
+            nodes = zip(node_ids, [int(t) for t in self.conn.client.hmget(self.nodelist_key, node_ids)])
         else:
             nodes = self.get_all_nodes().items()
 
-        expiration_delta = self.__process.process_ttl * 1000.
+        expiration_delta = self.conn.PROCESS_TTL * 1000.
         now = int(time.time() * 1000.)
         return [node_id for (node_id, last_updated) in nodes if (now - last_updated) > expiration_delta]
 
@@ -67,20 +70,18 @@ class Nodelist(object):
         """
         nodes = self.find_expired_nodes(node_ids)
         if nodes:
-            self.__process.client.hdel(self.nodelist_key, *nodes)
+            self.conn.client.hdel(self.nodelist_key, *nodes)
 
     def remove_node(self, node_id=None):
         """
         Removes a particular node from the nodelist.
 
-        Should only be run with a lock.
-
         :param string node_id: optional, the process id of the node to remove
         """
         if not node_id:
-            node_id = self.__process.id
+            node_id = self.conn.id
 
-        self.__process.client.hdel(self.nodelist_key, node_id)
+        self.conn.client.hdel(self.nodelist_key, node_id)
 
     def clear_nodelist(self):
         """
@@ -88,21 +89,21 @@ class Nodelist(object):
 
         Should only be run with a lock.
         """
-        self.__process.client.delete(self.nodelist_key)
+        self.conn.client.delete(self.nodelist_key)
 
     def get_last_updated(self, node_id=None):
         """
         Returns the time a particular node has been last refreshed.
 
-        :param string node_id: optional, the process id of the node to retrieve
+        :param string node_id: optional, the connection id of the node to retrieve
 
         :rtype: int
         :returns: Returns a unix timestamp if it exists, otherwise None
         """
         if not node_id:
-            node_id = self.__process.id
+            node_id = self.conn.id
 
-        dt = self.__process.client.hget(self.nodelist_key, node_id)
+        dt = self.conn.client.hget(self.nodelist_key, node_id)
         return int(dt) if dt else None
 
     def get_all_nodes(self):
@@ -114,7 +115,7 @@ class Nodelist(object):
         :returns: A dictionary of strings and corresponding timestamps
 
         """
-        nodes = self.__process.client.hgetall(self.nodelist_key)
+        nodes = self.conn.client.hgetall(self.nodelist_key)
         return {node_id: int(dt) for (node_id, dt) in nodes.items()}
 
     def count(self):
@@ -122,4 +123,4 @@ class Nodelist(object):
         :rtype: int
         :returns: The number of nodes in the nodelist
         """
-        return self.__process.client.hlen(self.nodelist_key)
+        return self.conn.client.hlen(self.nodelist_key)

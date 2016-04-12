@@ -2,13 +2,18 @@ from collections import OrderedDict
 import threading
 import Queue
 import time
-from phonon import PhononError
+from phonon.exceptions import PhononError
 from phonon import get_logger
+
 
 logger = get_logger(__name__)
 
 
 class CacheError(PhononError):
+    pass
+
+
+class Finish(PhononError):
     pass
 
 
@@ -19,7 +24,10 @@ def expire_updates(cache, update_queue):
     while True:
         try:
             update = update_queue.get()
-            update.end_session()
+            if hasattr(update, '__name__') and update.__name__ == 'Finish':
+                break
+            else:
+                update.end_session()
         except Queue.Empty, e:
             time.sleep(1)
         except Exception, e:
@@ -54,6 +62,7 @@ class LruCache(object):
     def __start_async_expiry(self):
         if not self.__async:
             return None
+
         if self.__expire_thread is None or not self.__expire_thread.is_alive():
             self.__expire_thread = threading.Thread(target=expire_updates, args=(self, self.__expire_queue,))
             self.__expire_thread.daemon = True
@@ -149,7 +158,8 @@ class LruCache(object):
         appropriately. Ends the session for that element.
         """
         try:
-            self.expire(next(iter(self.__cache)))
+            expiring = next(iter(self.__cache))
+            self.expire(expiring)
         except StopIteration, e:
             pass
 
@@ -164,8 +174,8 @@ class LruCache(object):
         del self.__cache[key]
         try:
             if self.__async:
-                self.__start_async_expiry()  # Restart process if it failed for whatever reason.
                 self.__expire_queue.put(expired)
+                self.__start_async_expiry()  # Restart process if it failed for whatever reason.
             else:
                 expired.end_session()
         except Exception, e:
