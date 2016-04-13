@@ -55,11 +55,21 @@ class Reference(object):
         """
         self.resource_key = resource
         self.nodelist = phonon.nodelist.Nodelist(resource)
-        self.times_modified_key = "{0}_{1}.times_modified".format(PHONON_NAMESPACE, resource)
+        self.times_modified_key = "{}_{}.times_modified".format(PHONON_NAMESPACE, resource)
+        self.refcount_key = "{}_{}.refcount".format(PHONON_NAMESPACE, resource)
         self.force_expiry = False
         self.conn = phonon.connections.connection
-        self.conn.add_to_registry(self.resource_key)
+        if self.resource_key not in self.conn.local_registry:
+            self.conn.client.incr(self.refcount_key)
+            self.conn.add_to_registry(self.resource_key)
+
         self.refresh_session()
+
+    def lock(self):
+        """
+        Locks the resource managed by this reference.
+        """
+        return phonon.lock.Lock(self.resource_key)
 
     def refresh_session(self):
         """
@@ -70,9 +80,7 @@ class Reference(object):
         """
         expired_nodes = self.nodelist.find_expired_nodes()
         if expired_nodes:
-            with self.lock():
-                self.nodelist.remove_expired_nodes(expired_nodes)
-
+            self.nodelist.remove_expired_nodes(expired_nodes)
         self.nodelist.refresh_session()
 
     def increment_times_modified(self):
@@ -80,22 +88,16 @@ class Reference(object):
         Increments the number of times this resource has been modified by all
         processes.
         """
-        client = self.conn.client
-        key = self.times_modified_key
-        rc = client.setnx(key, 1)
-        if not rc:
-            client.incr(key, 1)
-        else:
-            client.pexpire(key, TTL * 1000)  # ttl is in ms
+        rc = self.conn.client.incr(self.times_modified_key)
+        self.conn.client.pexpire(self.times_modified_key,
+                                 phonon.s_to_ms(TTL))  # ttl is in ms
 
     def get_times_modified(self):
         """
         :returns: The total number of times increment_times_modified has been called for this resource by all processes.
         :rtype: int
         """
-        key = self.times_modified_key
-        client = self.conn.client
-        times_modified = client.get(key)
+        times_modified = self.conn.client.get(self.times_modified_key)
         if times_modified is None:
             return 0
         return int(times_modified)
@@ -105,10 +107,10 @@ class Reference(object):
         :returns: The total number of elements in the reference list.
         :rtype: int
         """
-        return self.nodelist.count()
-
-    def lock(self):
-        return phonon.lock.Lock(self.resource_key)
+        references = self.conn.client.get(self.refcount_key)
+        if references is None:
+            return 0
+        return int(references)
 
     def dereference(self, callback=None, args=None, kwargs=None):
         """
@@ -136,7 +138,6 @@ class Reference(object):
             processes. True if this was the last reference. False otherwise.
         :rtype: bool
         """
-        pids = {}
         if args is None:
             args = tuple()
         if kwargs is None:
@@ -144,27 +145,26 @@ class Reference(object):
 
         client = self.conn.client
 
-        rc = False
+        should_execute = False
         if self.force_expiry:
-            rc = True
+            should_execute = True
 
-        retries = 100
-        while retries:
-            try:
-                with self.lock():
-                    if not rc:
-                        self.nodelist.remove_node(self.conn.id)
-                        self.nodelist.remove_expired_nodes()
-                        rc = self.nodelist.count() == 0
-                    try:
-                        if callback is not None and rc:
-                            callback(*args, **kwargs)
-                    finally:
-                        if rc:
-                            client.delete(self.resource_key, self.nodelist.nodelist_key, self.times_modified_key)
+        if not should_execute:
+            self.nodelist.remove_node(self.conn.id)
+            self.nodelist.remove_expired_nodes()
 
-                        self.conn.remove_from_registry(self.resource_key)
-                    return rc
-            except phonon.exceptions.AlreadyLocked, e:
-                time.sleep(0.1)
-                retries -= 1
+            updated_refcount = client.incr(self.refcount_key, -1)
+            should_execute = (updated_refcount <= 0)  # When we force expiry this will be -1
+
+        try:
+            if callable(callback) and should_execute:
+                callback(*args, **kwargs)
+        finally:
+            if should_execute:
+                client.delete(self.resource_key,
+                              self.nodelist.nodelist_key,
+                              self.times_modified_key,
+                              self.refcount_key)
+
+            self.conn.remove_from_registry(self.resource_key)
+        return should_execute
