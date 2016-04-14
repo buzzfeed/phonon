@@ -38,3 +38,5 @@ class ShardedClient(object):
 
         return wrap
 
+    def using_key(self, key):
+        return self.route(key)

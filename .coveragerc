@@ -2,12 +2,16 @@
 branch = True
 source = phonon/
 include =
-    phonon/update.py
-    phonon/reference.py
-    phonon/process.py
+    phonon/client.py
+    phonon/event.py
+    phonon/exceptions.py
+    phonon/fields.py
+    phonon/lock.py
+    phonon/model.py
     phonon/nodelist.py
+    phonon/reference.py
+    phonon/registry.py
     phonon/__init__.py 
-    phonon/cache.py
 [report]
 exclude_lines =
     pragma: no cover
