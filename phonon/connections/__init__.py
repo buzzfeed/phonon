@@ -47,6 +47,7 @@ class AsyncConn(phonon.event.EventMixin):
             io_loop=self.ioloop
         )
         self.registry_key = self.get_registry_key(self.id)
+        self.local_registry = set()
 
         self.heart.start()
         self.ioloop.add_callback(self.send_heartbeat)
@@ -63,9 +64,12 @@ class AsyncConn(phonon.event.EventMixin):
         return self.client.smembers(self.registry_key)
 
     def add_to_registry(self, member, registry_key=None):
+        self.local_registry.add(member)
         return self.client.sadd(registry_key or self.registry_key, member)
 
     def remove_from_registry(self, member):
+        if member in self.local_registry:  # force_expiry can cause this to be called twice.
+            self.local_registry.remove(member)
         return self.client.srem(self.registry_key, member)
 
     def move_n_to_new_registry(self, old_registry, new_registry, n=0):
@@ -108,6 +112,7 @@ class AsyncConn(phonon.event.EventMixin):
     def close(self):
         self.heart.stop()
         self.client.hdel(self.HEARTBEAT_KEY, self.id)
+        self.local_registry = set()
 
 
 def connect(hosts=None, port=6379, db=1):

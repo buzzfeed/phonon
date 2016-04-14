@@ -14,6 +14,7 @@ class ReferenceTest(unittest.TestCase):
         self.client = redis.StrictRedis(host='localhost')
         self.client.flushall()
         self.conn = phonon.connections.connect(['localhost'])
+        self.conn.local_registry = set()
 
     def tearDown(self):
         self.client = redis.StrictRedis(host='localhost')
@@ -132,7 +133,7 @@ class ReferenceTest(unittest.TestCase):
 
     def test_count_for_one_reference(self):
         a = phonon.reference.Reference('foo')
-        assert a.count() == 1
+        assert a.count() == 1, a.count()
 
     def test_count_for_multiple_references(self):
         phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])

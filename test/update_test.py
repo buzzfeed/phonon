@@ -119,6 +119,7 @@ class UpdateTest(unittest.TestCase):
 
     def setUp(self):
         phonon.connections.connect(hosts=['localhost'])
+        phonon.connections.connection.local_registry = set()
         phonon.connections.connection.client.flushall()
 
     def test_cache_caches(self):
@@ -139,6 +140,7 @@ class UpdateTest(unittest.TestCase):
         client.flushall()
         b = UserUpdate(_id='456', database='test', collection='user',
                        spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
+
         phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
         c = UserUpdate(_id='456', database='test', collection='user',
                        spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 6.}, init_cache=False)
@@ -405,6 +407,8 @@ class UpdateTest(unittest.TestCase):
         assert observed_spec == expected_spec
 
     def test_force_expiry_same_process_caching(self):
+        ab_conn = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        phonon.connections.connection = ab_conn
         a = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
         b = UserUpdate(_id='123456', database='test', collection='user',
@@ -420,7 +424,6 @@ class UpdateTest(unittest.TestCase):
         assert len(nodelist) == 1
         nodelist = b.ref.nodelist.get_all_nodes()
         assert len(nodelist) == 1
-
         b._cache()
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
@@ -449,7 +452,6 @@ class UpdateTest(unittest.TestCase):
         assert observed_coll == expected_coll
         assert observed_db == expected_db
         assert observed_spec == expected_spec
-
         c.cache()
         c.end_session()
         target = json.loads(client.get("{0}.write".format(c.resource_id)) or "{}")
@@ -473,13 +475,15 @@ class UpdateTest(unittest.TestCase):
         assert observed_spec == expected_spec
 
     def test_force_expiry_caching_conflicts(self):
-        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        ac_conn = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        phonon.connections.connection = ac_conn
         a = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 1., 'b': 2., 'c': 3.})
         c = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 7., 'b': 8., 'c': 9.})
 
-        phonon.connections.connection = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        bd_conn = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        phonon.connections.connection = bd_conn
         b = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 4., 'b': 5., 'c': 6.})
         d = UserUpdate(_id='123456', database='test', collection='user',
@@ -495,6 +499,8 @@ class UpdateTest(unittest.TestCase):
         assert len(nodelist) == 2
 
         b._cache()
+
+        phonon.connections.connection = ac_conn
         assert a.ref.get_times_modified() == 1, a.ref.get_times_modified()
         a.force_expiry()
 
@@ -511,10 +517,15 @@ class UpdateTest(unittest.TestCase):
         for k, v in expected_doc.items():
             assert observed_doc[k] == v, k
 
+        e_conn = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        phonon.connections.connection = e_conn
         e = UserUpdate(_id='123456', database='test', collection='user',
                        spec={'_id': 123456}, doc={'a': 30., 'b': 31., 'c': 32.})
 
+        assert e.ref.count() == 1, e.ref.count()
+        phonon.connections.connection = ac_conn
         c._cache()
+        phonon.connections.connection = bd_conn
         d.end_session()
 
         target = json.loads(client.get("{0}.write".format(c.resource_id)) or "{}")
@@ -527,6 +538,7 @@ class UpdateTest(unittest.TestCase):
         expected_spec = {u'_id': 123456}
         expected_coll = u'user'
         expected_db = u'test'
+
         for k, v in observed_doc.items():
             assert expected_doc[k] == v, observed_doc
         for k, v in expected_doc.items():
@@ -536,6 +548,8 @@ class UpdateTest(unittest.TestCase):
         assert observed_db == expected_db
         assert observed_spec == expected_spec
 
+        assert client.get(e.ref.refcount_key) == None
+        phonon.connections.connection = e_conn
         e.end_session()
         target = json.loads(client.get("{0}.write".format(e.resource_id)) or "{}")
         observed_doc = target.get('doc')

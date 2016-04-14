@@ -18,6 +18,7 @@ class LruCacheTest(unittest.TestCase):
     def setUp(self):
         redis.StrictRedis().flushall()
         phonon.connections.connect(hosts=['localhost'])
+        phonon.connections.connection.local_registry = set()
         self.cache = LruCache(max_entries=5, async=False)
         self.async_cache = LruCache(max_entries=5, async=True)
 
@@ -542,7 +543,7 @@ class LruCacheTest(unittest.TestCase):
         self.async_cache.set('456', a)
         set_return = self.async_cache.set('456', b)
 
-        time.sleep(0.01)
+        time.sleep(0.03)
 
         assert set_return is False
         written = phonon.connections.connection.client.get('{0}.write'.format(a.resource_id))
@@ -761,20 +762,26 @@ class LruCacheTest(unittest.TestCase):
         assert written['doc'] == {"e": 2.0, "d": 1.0, "f": 3.0}
 
     def test_cache_ends_multiprocess_expired_sessions_conflict_free(self):
-        conn1 = phonon.connections.AsyncConn(redis_hosts=['localhost'])
-        conn2 = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        ab_conn = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        c_conn = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        phonon.connections.connection = ab_conn
         self.cache2 = LruCache(max_entries=5)
 
         a = ConflictFreeUserUpdate(_id='456', database='test', collection='user',
                                    spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 1.}, hard_session=.005)
         b = ConflictFreeUserUpdate(_id='456', database='test', collection='user',
                                    spec={u'_id': 456}, doc={'d': 4., 'e': 5., 'f': 2.}, hard_session=.005)
+        phonon.connections.connection = c_conn
         c = ConflictFreeUserUpdate(_id='456', database='test', collection='user',
                                    spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
 
+        phonon.connections.connection = ab_conn
         self.cache.set('456', a)
         time.sleep(.04)
         set_return = self.cache.set('456', b)
+
+        c_conn = phonon.connections.AsyncConn(redis_hosts=['localhost'])
+        phonon.connections.connection = c_conn
         set_return_2 = self.cache2.set('456', c)
 
         assert set_return is None
@@ -788,11 +795,9 @@ class LruCacheTest(unittest.TestCase):
         assert get_return_2 is None
 
         executed_doc = {u'e': "12", u'd': "9", u'f': "6"}
-        for k, v in executed_doc.items():
-            assert phonon.connections.connection.client.get("{0}.write.{1}".format(a.resource_id, k)) == v
-
-        phonon.connections.connection.client.flushdb()
-        phonon.connections.connection.close()
+        for k, expected in executed_doc.items():
+            observed = phonon.connections.connection.client.get("{0}.write.{1}".format(a.resource_id, k))
+            assert observed == expected, "{} should have been {}".format(observed, expected)
 
     def test_cache_ends_multiprocess_expired_sessions_async(self):
         conn1 = phonon.connections.AsyncConn(redis_hosts=['localhost'])
@@ -882,8 +887,6 @@ class LruCacheTest(unittest.TestCase):
         phonon.connections.connection.close()
 
     def test_cache_ends_multiprocess_expired_sessions_async2(self):
-        conn1 = phonon.connections.AsyncConn(redis_hosts=['localhost'])
-        conn2 = phonon.connections.AsyncConn(redis_hosts=['localhost'])
         self.cache2 = LruCache(max_entries=5, async=True)
 
         a = UserUpdate(_id='456', database='test', collection='user',
@@ -894,7 +897,7 @@ class LruCacheTest(unittest.TestCase):
                        spec={u'_id': 456}, doc={'d': 1., 'e': 2., 'f': 3.}, hard_session=.005)
 
         self.async_cache.set('456', a)
-        time.sleep(.04)
+        time.sleep(.1)
         set_return = self.async_cache.set('456', b)
         set_return_2 = self.cache2.set('456', c)
 
