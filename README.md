@@ -32,7 +32,12 @@ This package uses the standard `setup.py` approach:
 python setup.py test
 ```
 
+You should probably run that in a virtualenv. People should use virtualenvs.
+
 # Getting Started
+
+This latest version of `phonon` encourages a lock-free, asynchronous approach to aggregation through your redis cache. 
+With this in mind; we _support_ but do not _encourage_ locking. With that said... 
 
 ## References
 
@@ -43,49 +48,50 @@ The building blocks for this approach to concurrency is the `Reference` object. 
 * keeping track of how many processes have modified that resource
 * executing a callback when a process is the last to finish using a resource
 
-Here's an example:
+### An example
+
+Let's say we have a process that monitors events on a stream in NSQ, a popular message bus. Sometimes these can be VERY high volume!
+
+If we want to aggregate locally, before writing to a cache, and ultimately a database; `phonon` makes that process easy.
 
 ```python
-from phonon.reference import Reference
-from phonon.process import Process
+import nsq
 
-p1 = Process()
-address_lookup_service = p1.create_reference(resource='me')
-p2 = Process()
-email_verification_service = p2.create_reference(resource='me')
+import phonon.registry
+import phonon.connections
+import phonon.model
+import phonon.field
 
-def lookup_email_and_apply_to_record(record, reference):
-    email = get_email(record)
-    try:
-        with email_verification_service.lock():
-            update_record_with_email(record, email)
-            if email_verification_service.count() == 1:
-                write_record_to_database(record)
-    except Process.AlreadyLocked, e:
-        # Unable to acquire lock. Handle as needed.  
-        pass
+class Session(phonon.model.Model):
+    id = phonon.field.ID()
+    impressions = phonon.field.SumField()
+    clicks = phonon.field.SumField()
+    
+    def on_complete(self, msg):
+        # Write the model to the database. You're guaranteed to have the global aggregate now.
+        msg.finish()
+    
+def handle_message(msg):
+    msg.enable_async()
+    body = json.loads(msg.body)
+    phonon.registry.register(Session(
+        id=body['user_id'],
+        impressions=int(body['type'] == 'unit_impression'),
+        clicks=int(body['type'] == 'unit_click', msg)
 
-def verify_address_and_apply_to_record(record, reference):
-    address = get_address(record)
-    try:
-        with address_lookup_service.lock():
-            update_record_with_address(record, address)
-            if address_lookup_service.count() == 1:
-                write_record_to_database(record)
-    except Process.AlreadyLocked, e:
-        # Unable to acquire lock. Handle as needed.
-        pass
-
-t1 = threading.Thread(target=lookup_email_and_apply_to_record,
-    args=('me', email_verification_service))
-t2 = threading.Thread(target=verify_address_and_apply_to_record,
-    args=('me', address_lookup_service))
-t1.start()
-t2.start()
-t1.join()
-t2.join()
-
-p1.stop()
-p2.stop()
+if __name__ == '__main__':
+    phonon.connections.connect(hosts=['redis01.example.com', 'redis02.example.com'])
+    nsq.Reader(
+        topic=CONVERSION_EVENTS_TOPIC,
+        channel=QR_CLICKS_AND_IMPRESSIONS_AGGREGATOR,
+        message_handler=handle_message,
+        lookupd_http_addresses=['nsq01.example.com', 'nsq02.example.com'],
+        max_in_flight=10
+    )
+    nsq.run()
+    
 ```
 
+By declaring a session with the `SumField` fields populated with the quantity represented by the individual message we can ensure they're aggregated in the cache in a way that is lock free and conflict free.
+
+Be sure to check out `phonon.field.Fields` for more types you can aggregate!
