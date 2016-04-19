@@ -8,3 +8,7 @@ class AlreadyLocked(PhononError):
 
 class ArgumentError(PhononError):
     pass
+
+
+class NotImplementedError(PhononError):
+    pass

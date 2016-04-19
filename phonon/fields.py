@@ -1,7 +1,5 @@
 import itertools
 
-import phonon.connections
-
 
 class Field(object):
     """
@@ -28,9 +26,6 @@ class ID(Field):
     which is a required parameter.
     """
 
-    def __init__(self):
-        pass
-
     def merge(self, a, b):
         assert a == b
         return a
@@ -46,21 +41,16 @@ class Sum(Field):
     """
 
     def __init__(self, data_type=int):
-        self.conn = phonon.connections.connection
         self.data_type = data_type
-        if data_type is int:
-            self.operation = self.conn.client.incrby
-            self.default_value = 0
-        elif data_type is float:
-            self.operation = self.conn.client.incrbyfloat
-            self.default_value = 0.
 
     def merge(self, a, b):
         return a + b
 
-    def cache(self, model_name, instance_id, field_name, field_value):
-        key = self.key(model_name, instance_id, field_name)
-        return self.operation(key, field_value) is not None
+    def cache(self, client, model, field_name, field_value):
+        key = self.key(model.name(), model.id, field_name)
+        if self.data_type is int:
+            return client.incrby(key, field_value) is not None
+        return client.incrbyfloat(key, field_value) is not None
 
 
 class Diff(Field):
@@ -70,21 +60,16 @@ class Diff(Field):
     """
 
     def __init__(self, data_type=int):
-        self.conn = phonon.connections.connection
         self.data_type = data_type
-        if data_type is int:
-            self.operation = self.conn.client.incrby
-            self.default_value = 0
-        elif data_type is float:
-            self.operation = self.conn.client.incrbyfloat
-            self.default_value = 0.
 
     def merge(self, a, b):
         return a - b
 
-    def cache(self, model_name, instance_id, field_name, field_value):
-        key = self.key(model_name, instance_id, field_name)
-        return self.operation(key, -field_value) is not None
+    def cache(self, client, model, field_name, field_value):
+        key = self.key(model.name(), model.id, field_name)
+        if self.data_type is int:
+            return client.incrby(key, -field_value) is not None
+        return client.incrbyfloat(key, -field_value) is not None
 
 
 class ListAppend(Field):
@@ -93,13 +78,9 @@ class ListAppend(Field):
     them locally, as well as in the cache in a way that is totally conflict-free.
     """
 
-    def __init__(self):
-        self.conn = phonon.connections.connection
-        self.default_value = []
-
-    def cache(self, model_name, instance_id, field_name, field_value):
-        key = self.key(model_name, instance_id, field_name)
-        return self.conn.client.rpush(key, *field_value) > 0
+    def cache(self, client, model, field_name, field_value):
+        key = self.key(model.name(), model.id, field_name)
+        return client.rpush(key, *field_value) > 0
 
     def merge(self, a, b):
         return a + b
@@ -111,13 +92,9 @@ class SetAppend(Field):
     them locally, as well as in the cache in a way that is totally conflict-free.
     """
 
-    def __init__(self):
-        self.conn = phonon.connections.connection
-        self.default_value = set()
-
-    def cache(self, model_name, instance_id, field_name, field_value):
-        key = self.key(model_name, instance_id, field_name)
-        return self.conn.client.sadd(key, *field_value) > 0
+    def cache(self, client, model, field_name, field_value):
+        key = self.key(model.name(), model.id, field_name)
+        return client.sadd(key, *field_value) > 0
 
     def merge(self, a, b):
         return a.union(b)
@@ -135,14 +112,12 @@ class WindowedList(Field):
     """
 
     def __init__(self, window_length=None):
-        self.conn = phonon.connections.connection
-        self.default_value = []
         self.window_length = window_length or 10
 
-    def cache(self, model_name, instance_id, field_name, field_value):
-        key = self.key(model_name, instance_id, field_name)
-        return all([self.conn.client.zadd(key, *[v for v in itertools.chain(*field_value)]) is not None,
-                    self.conn.client.zremrangebyrank(key, 0, -self.window_length) is not None])
+    def cache(self, client, model, field_name, field_value):
+        key = self.key(model.name(), model.id, field_name)
+        return all([client.zadd(key, *[v for v in itertools.chain(*field_value)]) is not None,
+                    client.zremrangebyrank(key, 0, -self.window_length) is not None])
 
     def merge(self, a, b):
         return a + b

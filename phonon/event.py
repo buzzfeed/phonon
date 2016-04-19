@@ -1,6 +1,9 @@
 import collections
 
-# Event definitions
+"""
+Event definitions
+"""
+# For the phonon.connections.AsyncConn
 HEARTBEAT = 1
 CONNECTED = 2
 

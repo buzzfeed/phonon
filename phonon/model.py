@@ -1,5 +1,8 @@
 import phonon.fields
 import phonon.exceptions
+import phonon.connections
+import phonon.reference
+import phonon.registry
 
 
 class MetaModel(type):
@@ -47,14 +50,25 @@ class Model(object):
     """
     __metaclass__ = MetaModel
 
+    TTL = 30  # Seconds
+
     def __init__(self, *args, **kwargs):
         try:
             self.id = kwargs['id']
+            self.__resource_key = "{}.{}".format(self.__class__.__name__, self.id)
+            self.reference = phonon.reference.Reference(self.__resource_key)
+            self.__client = phonon.connections.connection.client.using_key(self.__resource_key)
         except KeyError, e:
             raise phonon.exceptions.ArgumentError("id is a required field")
 
         for key, field in self.__class__._fields.items():
             setattr(self, key, kwargs[key])
+
+    def name(self):
+        return self.__class__.__name__
+
+    def registry_key(self):
+        return "{}.{}".format(self.name(), self.id)
 
     def merge(self, other):
         for key, field in self.__class__._fields.items():
@@ -62,8 +76,10 @@ class Model(object):
                                            getattr(other, key)))
 
     def cache(self):
-        model_name = self.__class__.__name__
         for field_name, field in self.__class__._fields.items():
             field_value = getattr(self, field_name)
-            if not field.cache(model_name, self.id, field_name, field_value):
+            if not field.cache(self.__client, self, field_name, field_value):
                 raise phonon.exceptions.CacheError("Failed to cache {}".format(field_name))
+
+    def on_complete(self):
+        raise phonon.exceptions.NotImplemented("on_complete should be implemented.")
