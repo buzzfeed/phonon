@@ -55,6 +55,7 @@ class Model(object):
     def __init__(self, *args, **kwargs):
         try:
             self.id = kwargs['id']
+            self.__init_cache = kwargs.pop('__init_cache', False)
             self.__resource_key = "{}.{}".format(self.__class__.__name__, self.id)
             self.reference = phonon.reference.Reference(self.__resource_key)
             self.__client = phonon.connections.connection.client.using_key(self.__resource_key)
@@ -63,6 +64,9 @@ class Model(object):
 
         for key, field in self.__class__._fields.items():
             setattr(self, key, kwargs[key])
+
+        if self.__init_cache:
+            self.cache()
 
     def name(self):
         return self.__class__.__name__
@@ -80,6 +84,10 @@ class Model(object):
             field_value = getattr(self, field_name)
             if not field.cache(self.__client, self, field_name, field_value):
                 raise phonon.exceptions.CacheError("Failed to cache {}".format(field_name))
+            setattr(self, field_name, None)
+
+    def expire_now(self):
+        self.reference.force_expiry = True
 
     def on_complete(self):
-        raise phonon.exceptions.NotImplemented("on_complete should be implemented.")
+        raise phonon.exceptions.NotImplementedError("on_complete should be implemented.")

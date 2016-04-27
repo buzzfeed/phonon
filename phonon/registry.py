@@ -12,6 +12,7 @@ class Registry(object):
         self.max_entries = max_entries
 
     def register(self, model, *args, **kwargs):
+
         if model.registry_key() in self.models:
             self.models[model.registry_key()].merge(model)
             self.ioloop.remove_timeout(self.timeouts[model.registry_key()])
@@ -31,6 +32,16 @@ class Registry(object):
                                            kwargs=kwargs):
             model.cache()
 
+    def expire(self, model):
+        to = self.timeouts[model.registry_key()]
+        self.ioloop.remove_timeout(to)
+        model.expire_now()
+        self.on_expire(model)
+
+    def clear(self):
+        for registry_key, model in self.models.items():
+            self.expire(model)
+
 
 registry = Registry()
 
@@ -42,3 +53,7 @@ def configure(max_entries=10000):
 
 def register(model):
     registry.register(model)
+
+
+def clear():
+    registry.clear()
