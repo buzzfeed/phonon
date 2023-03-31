@@ -16,7 +16,7 @@ setup(
     description='Provides easy, fault tolerant, distributed references with redis as a backend.',
     test_suite='test',
     install_requires=[
-        'redis==2.10.5',
+        'redis==4.4.4',
         'pytz==2014.10',
         'tornado==4.3',
     ],
