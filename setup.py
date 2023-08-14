@@ -18,7 +18,7 @@ setup(
     install_requires=[
         'redis==2.10.5',
         'pytz==2014.10',
-        'tornado==4.3',
+        'tornado==6.3.3',
     ],
     tests_require=[
         'funcsigs==0.4',
